@@ -1,0 +1,59 @@
+Window
+	Border
+	Title
+	Shown
+
+Widget
+	Container
+		Window
+		
+		Flow
+		Box
+		Rows
+		Cols
+		Layers
+		Grid
+	Text
+	Shape
+	Image
+	Native
+	Canvas
+
+Events
+	Mouse
+		MouseMove
+		MouseWheel
+		
+		MousePress
+		MouseRelease
+		
+		MouseIn
+		MouseOut
+		
+		DragMove
+		DragIn
+		DragOut
+		Drop
+	Keyboard
+		KeyPress
+		KeyRelease
+	Window
+		Move
+		Resize
+		Focus
+		Unfocus
+		Create
+		Destroy
+	Misc
+		Paint
+		Update
+
+Low-level layer
+* Expose event triggering from low-level API
+
+Mid-level layer
+* Meat of the logic, written in JS that makes lower level accessible
+
+User level
+* User GUI logic
+

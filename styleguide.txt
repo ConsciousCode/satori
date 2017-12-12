@@ -1,0 +1,35 @@
+variable_names_in_snake_case
+CONSTANTS_ARE_CAPITALIZED (including lookup tables)
+functionAndMethodNames
+ClassNames
+_privateMethods, _private_variables
+
+Indentation uses tab characters only for logical tabulation (no alignment) and no leading spaces.
+Multi-line variable declaration lists have an empty first line, comma/semicolon at the end.
+ var
+ 	x = 1,
+ 	y = 2,
+ 	z = 3;
+
+funCall(), funCall(x), funCall(x, y, ...)
+if(x) {
+}
+else if(x) {
+}
+else {
+}
+for(;;) {}
+do {} while(x);
+while(x) {}
+Statement blocks begin on the line of their statement prefixed by one space with the body indented once and the closing brace on its own line.
+Operators generally have spaces surrounding them. Exceptions:
+* multiplicatives: x*y x/y x%y
+* function default parameter values void f(int x=0, int y=1)
+// Comment on following code
+/// Indicate an important section
+/**
+ * Documentation
+**/
+Lines should never exceed 80 characters. Continuations of an expression should be indented. Multi-line function calls and blocks have the closing parenthesis on a separate line, with same-indentation being combined into one. Ex:
+callback(() => {
+}, 10)

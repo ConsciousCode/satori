@@ -1,0 +1,11 @@
+Blocks with no statements begin on their own line.
+Goto is allowed provided:
+* It doesn't create loops
+* Alternatives are less clear (e.g. branch joining)
+* Its name is of the form LABEL_<name>
+Function names use snake_case, method names use camelCase
+Pointers are type-oriented unless multiple pointers are being declared (type* x; type *a, *b)
+Use -Wpedantic and -Werror
+Never use switch-default in switches for enum values.
+Use auto whenever you can get away with it.
+Multi-line method chaining should place the dot operator at the end of the line (guarantees no automatic semicolon insertion)

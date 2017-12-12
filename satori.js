@@ -5,7 +5,7 @@ const
 	timers = require("timers"),
 	events = require("events");
 
-const eventcodes = {
+const EVENT_CODES = {
 	unknown: 0,
 	mousemove: 1, mousewheel: 2, mousepress: 3,
 	keypress: 4,
@@ -43,20 +43,29 @@ class MouseWheelEvent extends Event {
 }
 MouseWheelEvent.prototype.name = 'mousewheel';
 
-const mousenames = ['left', 'middle', 'right'];
+const MOUSE_NAMES = ['unknown', 'left', 'middle', 'right'];
 
 class MousePressEvent extends Event {
 	constructor(ev) {
 		super();
 		
-		this.button = mousenames[ev.button];
+		this.button = MOUSE_NAMES[ev.button];
 		this.state = ev.state;
 		this.dragging = ev.dragging;
 	}
 }
 MousePressEvent.prototype.name = 'mousepress';
 
-const keynames = [
+class MouseHoverEvent extends Event {
+	constructor(ev) {
+		super();
+		
+		this.raw = ev;
+	}
+}
+MouseHoverEvent.prototype.name = 'mousehover';
+
+const KEY_NAMES = [
 	0, 1, 2, 3, 4, 5, 6, 7,
 	'\b', '\t',
 	10, 11, 12,
@@ -97,9 +106,9 @@ const keynames = [
 ];
 
 /**
- * Bindings between printable keys and what they print
+ * Bindings between printable	 keys and what they print
 **/
-const printable = {
+const PRINTABLE = {
 	'\r': '\r', '\t': '\t', ' ': ' ',
 	
 	'1': '1', '2': '2', '3': '3', '4': '4', '5': '5',
@@ -123,7 +132,7 @@ const printable = {
 /**
  * Shift modifier bindings
 **/
-const shiftable = {
+const SHIFTABLE = {
 	"1": "!", "2": "@", "3": "#", "4": "$", "5": "%",
 	"6": "^", "7": "&", "8": "*", "9": "(", "0": ")",
 	
@@ -151,14 +160,14 @@ class KeyPressEvent extends Event {
 		this.alt = ev.alt;
 		this.meta = ev.meta;
 		
-		this.key = keynames[ev.button];
+		this.key = KEY_NAMES[ev.button];
 		this.button = ev.button;
 		this.state = ev.state;
 		
-		let k = printable[this.key];
+		let k = PRINTABLE[this.key];
 		if(k) {
 			if(this.shift) {
-				this.char = shiftable[k];
+				this.char = SHIFTABLE[k];
 			}
 			else {
 				this.char = k;
@@ -200,27 +209,14 @@ class WindowFocusEvent extends Event {
 }
 WindowFocusEvent.prototype.name = 'windowfocus';
 
-function pretty_event(ev) {
-	switch(ev.code) {
-		case 1: // MOUSE_MOVE
-			return new MouseMoveEvent(ev);
-		case 2: // MOUSE_WHEEL
-			return new MouseWheelEvent(ev);
-		case 3: // MOUSE_PRESS
-			return new MousePressEvent(ev);
-		case 4: // KEY_PRESS
-			return new KeyPressEvent(ev);
-		case 5: // WINDOW_MOVE
-			return new WindowMoveEvent(ev);
-		case 6: // WINDOW_RESIZE
-			return new WindowResizeEvent(ev);
-		case 7: // WINDOW_FOCUS
-			return new WindowFocusEvent(ev);
-		
-		case 0: // UNKNOWN
-		default:
-			return new UnknownEvent(ev);
-	}
+const EVENTS = [
+	UnknownEvent, MouseMoveEvent, MouseWheelEvent, MousePressEvent,
+	MouseHoverEvent, KeyPressEvent,
+	WindowMoveEvent, WindowResizeEvent, WindowFocusEvent
+];
+
+function prettifyEvent(ev) {
+	return new (EVENTS[ev.code] || UnknownEvent)(ev);
 }
 
 let windows = new Set();
@@ -249,10 +245,18 @@ class Window extends events.EventEmitter {
 		windows.add(this);
 	}
 	
-	//  addListener defers to on() - is this stable?
+	// We need to tell the native library that we're listening for
+	//  new events. Override both .on() and .addListener() just in
+	//  case.
+	
 	on(type, listener) {
-		this._native.listenEvent(eventcodes[type]);
+		this._native.listenEvent(EVENT_CODES[type]);
 		return super.on(type, listener);
+	}
+	
+	addListener(type, listener) {
+		this._native.listenEvent(EVENT_CODES[type]);
+		return super.addListener(type, listener);
 	}
 	
 	/**
@@ -262,7 +266,7 @@ class Window extends events.EventEmitter {
 		let v = [], ev;
 		
 		while(ev = this._native.pollEvent()) {
-			v.push(pretty_event(ev));
+			v.push(prettifyEvent(ev));
 		}
 		
 		return v;
@@ -281,7 +285,7 @@ class Window extends events.EventEmitter {
 	processEvents() {
 		let ev;
 		while(ev = this._native.pollEvent()) {
-			this.processEvent(pretty_event(ev));
+			this.processEvent(prettifyEvent(ev));
 		}
 	}
 }

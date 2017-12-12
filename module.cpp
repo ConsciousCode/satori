@@ -4,7 +4,9 @@
 
 #include "native.cpp"
 
-#include "cpp_magic.h"
+// Don't use using to ensure the namespaces are all crystal clear
+// using namespace v8;
+// using namespace node;
 
 // There's a lot of macros here to reduce crazy boilerplate
 
@@ -31,7 +33,7 @@ namespace satori {
 		
 		native::Window native;
 		
-		static void Init(v8::Local<v8::Object> exports) {
+		static void init(v8::Local<v8::Object> exports) {
 			native::Window::Init();
 			
 			v8::Isolate* isolate = exports->GetIsolate();
@@ -39,10 +41,9 @@ namespace satori {
 			// Constructor
 			
 			v8::Local<v8::FunctionTemplate> tpl =
-				v8::FunctionTemplate::New(isolate, New);
+				v8::FunctionTemplate::New(isolate, jsnew);
 			
 			tpl->SetClassName(JS_S("NativeWindow"));
-			tpl->InstanceTemplate()->SetInternalFieldCount(9);
 			
 			// Prototype
 			
@@ -68,7 +69,7 @@ namespace satori {
 			exports->JS_SET(NativeWindow, tpl->GetFunction());
 		}
 		
-		static void New(const v8::FunctionCallbackInfo<v8::Value>& args) {
+		static void jsnew(const v8::FunctionCallbackInfo<v8::Value>& args) {
 			//IsConstructCall check not included because it's extra
 			
 			JSWindow* jsw = new JSWindow();
@@ -149,6 +150,14 @@ namespace satori {
 						obj->JS_SET(dragging, JS_BOOL(ev.dragging));
 						break;
 					}
+					case event::MOUSE_HOVER: {
+						event::mouse::Hover& ev = aev.mouse.hover;
+						
+						obj->JS_SET(x, JS_INT(ev.x));
+						obj->JS_SET(y, JS_INT(ev.y));
+						obj->JS_SET(state, JS_BOOL(ev.state));
+						break;
+					}
 					
 					case event::KEY_PRESS: {
 						event::key::Press& ev = aev.key.press;
@@ -185,7 +194,6 @@ namespace satori {
 					}
 					
 					case event::UNKNOWN:
-					default:
 						break;
 				}
 				
@@ -214,7 +222,7 @@ namespace satori {
 	
 	void init(v8::Local<v8::Object> exports) {
 		init_global(exports);
-		JSWindow::Init(exports);
+		JSWindow::init(exports);
 	}
 	
 	NODE_MODULE(satori, init)

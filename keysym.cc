@@ -39,7 +39,9 @@ xcb_keysym_t lookup_keysym(xcb_keycode_t code, xcb_mod_mask_t mods) {
 	code -= 8;
 	
 	int column = mods&(
-		XCB_MOD_MASK_SHIFT|XCB_MOD_MASK_LOCK|XCB_MOD_MASK_CONTROL
+		XCB_MOD_MASK_SHIFT |
+		XCB_MOD_MASK_LOCK |
+		XCB_MOD_MASK_CONTROL
 	);
 	
 	if(column > keysym_per) {
@@ -122,7 +124,7 @@ event::key::Button keysym2button(xcb_keysym_t sym) {
  * Look up the value of a key. We want both the code of the
  *  unmodifid button (return) and the key symbol it's modified to
 **/
-void satori_keymap(
+void xcb2satori_keycode(
 	xcb_keycode_t code, xcb_mod_mask_t mods,
 	event::key::Button* button,
 	event::key::Button* key

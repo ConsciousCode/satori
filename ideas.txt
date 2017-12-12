@@ -1,59 +1,73 @@
-Window
-	Border
-	Title
-	Shown
-
 Widget
 	Container
-		Window
-		
-		Flow
-		Box
-		Rows
-		Cols
-		Layers
-		Grid
-	Text
+		logical = furthest left/right/top/bottom according to order
+		display = defer to parent
+		child-display = calculated from order
+	Span/Text
+		logical = wrap display
+		display = defer to parent
 	Shape
+		logical = 
 	Image
 	Native
 	Canvas
+
+Style object
+	Acts like CSS, changing how the graphics context is used
+
+Layout
+	Follows strict, well-defined rules which can be customized
+	Logical size: The "actual" size of the component
+	Display size: The size of the view of the component, used to separate layout from logical size
+	Properties
+		min/max/explicit sizes affect the display size
+		offst/padding/margin
+			objects implementing placement policies for a widget
+
+Order (used for containers)
+	Flow - logical size calculated as laying out its elements
+	 in order, wrapping around the parent's minimum size
+	 	child-display = full display
+	Rows - lay out elements from left to right
+		child-display = display/child count width, full height
+	Cols - lay out elements from to to bottom
+		child-display = full width, display/child count height
+	Layers - elements are drawn on top of each other
+		child-display = full display
+	Grid - elements are drawn in a grid
+		child-display = combine rows/cols
 
 Events
 	Mouse
 		MouseMove
 		MouseWheel
-		
 		MousePress
-		MouseRelease
-		
-		MouseIn
-		MouseOut
+		MouseHover
 		
 		DragMove
-		DragIn
-		DragOut
+		DragHover
 		Drop
 	Keyboard
 		KeyPress
-		KeyRelease
 	Window
 		Move
 		Resize
 		Focus
-		Unfocus
 		Create
 		Destroy
-	Misc
 		Paint
-		Update
 
-Low-level layer
-* Expose event triggering from low-level API
+Project structure
+	C++ layer
+	JS wrapper layer
+	Satori layer (meat of the library)
+	User layer
 
-Mid-level layer
-* Meat of the logic, written in JS that makes lower level accessible
+Names of the layers
+	Grok
+	Intuit
+	Satori
 
-User level
-* User GUI logic
+The "view tree" is the hierarchical structure of widgets use to render the GUI. It's analogous to HTML's DOM.
 
+It shouldn't change much, so have a feature for layout cache invalidation

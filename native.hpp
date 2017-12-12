@@ -9,13 +9,15 @@ namespace satori {
 		enum Code {
 			UNKNOWN = 0,
 			MOUSE_MOVE = 1, MOUSE_WHEEL = 2, MOUSE_PRESS = 3,
-			KEY_PRESS = 4,
-			WINDOW_MOVE = 5, WINDOW_RESIZE = 6, WINDOW_FOCUS = 7
+			MOUSE_HOVER = 4,
+			KEY_PRESS = 5,
+			WINDOW_MOVE = 6, WINDOW_RESIZE = 7, WINDOW_FOCUS = 8
 		};
 		
 		namespace mouse {
 			enum Button {
-				LEFT = 0, MIDDLE = 1, RIGHT = 2
+				UNKNOWN = 0,
+				LEFT = 1, MIDDLE = 2, RIGHT = 3
 			};
 			
 			struct Move {
@@ -30,6 +32,11 @@ namespace satori {
 			struct Press {
 				Button button;
 				bool state, dragging;
+			};
+			
+			struct Hover {
+				int x, y;
+				bool state;
 			};
 		}
 		
@@ -100,6 +107,7 @@ namespace satori {
 					mouse::Move move;
 					mouse::Wheel wheel;
 					mouse::Press press;
+					mouse::Hover hover;
 				} mouse;
 				
 				union {
@@ -127,7 +135,7 @@ namespace satori {
 		
 		/**
 		// Flush any pending events (may be no-op)
-		void glolba_flush();
+		void global_flush();
 			
 		struct Window {
 			Window();
@@ -142,7 +150,7 @@ namespace satori {
 			int getSize();
 			void setSize(int p);
 			
-			std::string getTitle();
+			std::string getTitle3	();
 			void setTitle(std::string s);
 			
 			bool pollEvent(event::Any* ev);

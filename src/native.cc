@@ -9,6 +9,8 @@
 namespace satori {
 namespace native {
 
+typedef uint32_t uint;
+
 // We only really need to manage one connection to xorg no matter
 //  how many windows we create.
 static xcb_connection_t* conn = nullptr;
@@ -49,13 +51,59 @@ event::mouse::Button xcb2satori_mousebutton(xcb_button_index_t code) {
 		case XCB_BUTTON_INDEX_ANY:
 			return event::mouse::UNKNOWN;
 	}
+	
+	return event::mouse::UNKNOWN;
 }
 
-struct Window {
+/**
+ * 1010 -> 11001100 (but with 8 bits -> 16 bits)
+ * Adapted from Interleave bits by Binary Magic Numbers from
+ *  https://graphics.stanford.edu/~seander/bithacks.html
+**/
+int double_bits(int x) {
+	x = (x | (x << 4)) & 0x0F0F;
+	x = (x | (x << 2)) & 0x3333;
+	x = (x | (x << 1)) & 0x5555;
+	
+	return x | (x << 1);
+}
+
+struct RenderTarget {
+	xcb_colormap_t cmap;
+	
+	int maxColorMappings() {
+		return 1;
+	}
+	
+	uint allocColor(uint r, uint g, uint b, uint a) {
+		// Alpha is ignored for now, see the XRender extension
+		auto cookie = xcb_alloc_color(
+			conn, cmap,
+			r, g, b
+//			double_bits(r), double_bits(g), double_bits(b)
+		);
+		
+		printf("Color: %d, %d, %d\n", double_bits(r), double_bits(g), double_bits(b));
+		
+		// Trailing NULL is error
+		xcb_generic_error_t* error;
+		auto reply = xcb_alloc_color_reply(conn, cookie, &error);
+		if(error) {
+			printf("Error: %d\n", error->error_code);
+		}
+		return reply->pixel;
+	}
+	
+	void deallocColors(uint len, uint* ids) {
+		xcb_free_colors(conn, cmap, 0, len, ids);
+	}
+};
+
+struct Window : public RenderTarget {
 	xcb_window_t win;
 	int event_mask;
 	
-	static void Init() {
+	static void init() {
 		init_xcb();
 	}
 	
@@ -78,6 +126,17 @@ struct Window {
 			WIN_ATTR_MASK, values
 		);
 		xcb_map_window(conn, win);
+		
+		cmap = xcb_generate_id(conn);
+		auto cookie = xcb_create_colormap(
+			conn, XCB_COLORMAP_ALLOC_NONE,
+			cmap, win, screen->root_visual
+		);
+		auto* error = xcb_request_check(conn, cookie);
+		if(error) {
+			printf("Error2: %d\n", error->error_code);
+		}
+		printf("Colormap: %d\n", cmap);
 		
 		xcb_flush(conn);
 	}
@@ -108,7 +167,7 @@ struct Window {
 	std::string getTitle() {
 		return "";
 	}
-	void setTitle(std::string s) {
+	void setTitle(const std::string& s) {
 	}
 	
 	bool pollEvent(event::Any* ev) {
@@ -119,7 +178,9 @@ struct Window {
 		}
 		
 		switch(xcb_ev->response_type & ~0x80) {
-			case XCB_EXPOSE: goto LABEL_no_impl;
+			case XCB_EXPOSE:
+				ev->code = event::WINDOW_PAINT;
+				break;
 			
 			/*** BEGIN: Mouse press event handling ***/
 			{
@@ -272,6 +333,10 @@ struct Window {
 			case event::WINDOW_FOCUS:
 				event_mask |= XCB_EVENT_MASK_FOCUS_CHANGE;
 				break;
+			
+			case event::WINDOW_PAINT:
+				event_mask |= XCB_EVENT_MASK_EXPOSURE;
+				break;
 			//MouseOver, MouseOut
 			
 			case event::UNKNOWN:
@@ -288,7 +353,54 @@ struct Window {
 	}
 };
 
-struct Graphics {
+struct GraphicsContext {
+	xcb_gcontext_t gc;
+	xcb_drawable_t target;
+	
+	static void init() {
+	
+	}
+	
+	//GraphicsContext(target, fg, bg, lw, ls, cap, join, fill_style, fill_rule, font, clip, ...)
+	GraphicsContext(Window* w, int fg, int bg, int lw) {
+		gc = xcb_generate_id(conn);
+		target = w->win;
+		
+		int values[] = {fg, bg, lw};
+		
+		xcb_create_gc(
+			conn, gc, target,
+			XCB_GC_FOREGROUND | XCB_GC_BACKGROUND | XCB_GC_LINE_WIDTH,
+			values
+		);
+	}
+	
+	void drawRects(int len, Quad* quads) {
+		auto* rects = new xcb_rectangle_t[len];
+		for(int i = 0; i < len; ++i) {
+			rects[i].x = quads[i].x1;
+			rects[i].y = quads[i].y1;
+			rects[i].width = quads[i].x2;
+			rects[i].height = quads[i].y2;
+		}
+		
+		xcb_poly_rectangle(conn, target, gc, len, rects);
+		
+		delete[] rects;
+	}
+};
+
+struct Font {
+	xcb_font_t font;
+	
+	Font(const std::string& name) {
+		
+	}
+	
+	~Font() {
+		xcb_close_font(conn, font);
+	}
+	
 	
 };
 

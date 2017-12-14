@@ -11,7 +11,8 @@ namespace satori {
 			MOUSE_MOVE = 1, MOUSE_WHEEL = 2, MOUSE_PRESS = 3,
 			MOUSE_HOVER = 4,
 			KEY_PRESS = 5,
-			WINDOW_MOVE = 6, WINDOW_RESIZE = 7, WINDOW_FOCUS = 8
+			WINDOW_MOVE = 6, WINDOW_RESIZE = 7, WINDOW_FOCUS = 8,
+			WINDOW_PAINT = 9
 		};
 		
 		namespace mouse {
@@ -96,7 +97,11 @@ namespace satori {
 			struct Focus {
 				bool state;
 			};
-		};
+			
+			struct Paint {
+			
+			};
+		}
 		
 		// Combine all the events into one
 		struct Any {
@@ -118,10 +123,15 @@ namespace satori {
 					window::Move move;
 					window::Resize resize;
 					window::Focus focus;
+					window::Paint paint;
 				} window;
 			};
 		};
 	}
+	
+	struct Quad {
+		int x1, y1, x2, y2;
+	};
 	
 	/**
 	 * Forward declarations of native interfaces to be implemented
@@ -129,6 +139,7 @@ namespace satori {
 	**/
 	namespace native {
 		/*
+		struct RenderTarget;
 		struct Window;
 		struct Graphics;
 		*/
@@ -136,8 +147,15 @@ namespace satori {
 		/**
 		// Flush any pending events (may be no-op)
 		void global_flush();
+		
+		struct RenderTarget {
+			uint maxColorMappings();
 			
-		struct Window {
+			unsigned allocColor(uint r, uint g, uint b, uint a);
+			void deallocColors(uint size, uint* ids);
+		};
+		
+		struct Window : public RenderTarget {
 			Window();
 			~Window();
 			
@@ -150,8 +168,8 @@ namespace satori {
 			int getSize();
 			void setSize(int p);
 			
-			std::string getTitle3	();
-			void setTitle(std::string s);
+			std::string getTitle();
+			void setTitle(const std::string& s);
 			
 			bool pollEvent(event::Any* ev);
 			
@@ -159,8 +177,16 @@ namespace satori {
 			void listenEvent(event::Code code);
 		};
 		
-		struct Graphics {
+		// Handle for rendering graphics
+		//
+		struct GraphicsContext {
+			GraphicsContext(target, fg, bg, lw, ls, cap, join, fill_style, fill_rule, font, clip, ...)
+			
+			drawRects(int len, Quad* quads)
+		};
 		
+		struct Font {
+			
 		};
 		**/
 	}

@@ -1,15 +1,18 @@
 'use strict';
 
 const
-	satori = require("./satori");
+	satori = require("./lib/satori");
 
 var w = new satori.Window();
 
-w.on('keypress', console.log);
-w.on('mousepress', console.log);
-w.on('mousehover', console.log);
-w.on('windowfocus', console.log);
-w.on('mousewheel', console.log);
-w.on('windowfocus', console.log);
+let red = w.native.allocColor(255, 0, 0, 0);
 
-console.log(w._native.getSize());
+w.on('windowpaint', function(ev) {
+	let g = new satori.native.NativeGraphicsContext(
+		this.native, red, red, 4
+	);
+	g.drawRects({x: 0, y: 0, width: 32, height: 32});
+});
+w.on('keypress', console.log);
+
+console.log(w.native.getSize());

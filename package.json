@@ -1,0 +1,8 @@
+{
+	"name": "satori",
+	"description": "GUI library written mostly in JS",
+	"main": "lib/satori.js",
+	"dependencies": {
+		"bindings": "1.3"
+	}
+}

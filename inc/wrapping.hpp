@@ -86,7 +86,7 @@ inline string cpp(Var v) {
 			throw std::logic_error("cpp<string> got" + js_typeof(v));
 		}
 	#endif
-	return string((const char*)*v->ToString());
+	return *String::Utf8Value(v->ToString());
 }
 
 #define JS(v) js(isolate, v)

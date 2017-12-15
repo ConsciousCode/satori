@@ -4,8 +4,14 @@ const
 	{Fun, Class, generate} = require("./generate");
 
 generate({
-	global_flush: new Fun(
-		"global_flush", "native::global_flush()"
+	globalFlush: new Fun(
+		"globalFlush", "native::globalFlush()"
+	),
+	openFont: new Fun(
+		"openFont", "RETURN(native::openFont(cpp<string>(args[0])))"
+	),
+	closeFont: new Fun(
+		"closeFont", "native::closeFont(cpp<uint>(args[0]))"
 	),
 	NativeWindow: new Class("native::Window", {
 		new: (`

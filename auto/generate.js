@@ -93,6 +93,7 @@ class Fun {
 			${makefun("_wrap_" + this.name)};
 		`), normalize(`
 			${makefun("_wrap_" + this.name)} {
+				[[maybe_unused]] auto* isolate = args.GetIsolate();
 				${this.body};
 			}
 			

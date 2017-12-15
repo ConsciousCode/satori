@@ -241,9 +241,9 @@ namespace satori {
 			drawText(x, y, str...)
 		};
 		
-		struct Font {
-			
-		};
+		uint openFont(const std::string& name);
+		
+		void closeFont(xcb_font_t font);
 		**/
 	}
 }

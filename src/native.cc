@@ -1,9 +1,11 @@
 #include <xcb/xcb.h>
 
 #include "native.hpp"
+#include "x11error.hpp"
 
 #include <cstdio>
 #include <vector>
+#include <string>
 
 // Styleguide exception: everything is in this namespace, so it's
 //  all given 0-indentation.
@@ -34,9 +36,48 @@ void init_xcb() {
 	init_keysym();
 }
 
+// colormap, cursor, drawable, font, gc, id, pixmap, window
+// atom errors return atom
+std::string xcb_describeError(xcb_generic_error_t* error) {
+	const char* desc;
+	
+	switch(error->error_code) {
+		case XERR_SUCCESS: return "success";
+		case XERR_BAD_REQUEST: return "bad request";
+		case XERR_BAD_VALUE: return "bad value";
+		
+		case XERR_BAD_WINDOW: desc = "bad window "; break;
+		case XERR_BAD_PIXMAP: desc = "bad pixmap "; break;
+		case XERR_BAD_ATOM: desc = "bad atom "; break;
+		case XERR_BAD_CURSOR: desc = "bad cursor "; break;
+		case XERR_BAD_FONT: desc = "bad font "; break;
+		
+		case XERR_BAD_MATCH: return "bad match";
+		
+		case XERR_BAD_DRAWABLE: desc = "bad drawable "; break;
+		
+		case XERR_BAD_ACCESS: return "bad access";
+		case XERR_BAD_ALLOC: return "bad alloc";
+		
+		case XERR_BAD_COLORMAP: desc = "bad colormap "; break;
+		case XERR_BAD_GC: desc = "bad gc "; break;
+		case XERR_BAD_ID_CHOICE: desc = "bad id choice "; break;
+		
+		case XERR_BAD_NAME: return "bad name";
+		case XERR_BAD_LENGTH: return "bad length";
+		case XERR_BAD_IMPL: return "server error";
+	}
+	
+	return desc + std::to_string(error->minor_code);
+}
+
+void printError(xcb_generic_error_t* error) {
+	printf("Error: %s\n", xcb_describeError(error).c_str());
+}
+
 #define WIN_ATTR_MASK (XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK)
 
-void global_flush() {
+void globalFlush() {
 	xcb_flush(conn);
 }
 
@@ -87,7 +128,7 @@ struct RenderTarget {
 		xcb_generic_error_t* error;
 		auto reply = xcb_alloc_color_reply(conn, cookie, &error);
 		if(error) {
-			printf("Error: %d\n", error->error_code);
+			printError(error);
 		}
 		return reply->pixel;
 	}
@@ -132,9 +173,8 @@ struct Window : public RenderTarget {
 		);
 		auto* error = xcb_request_check(conn, cookie);
 		if(error) {
-			printf("Error2: %d\n", error->error_code);
+			printError(error);
 		}
-		printf("Colormap: %d\n", cmap);
 		
 		xcb_flush(conn);
 	}
@@ -466,26 +506,34 @@ struct GraphicsContext {
 		/*
 		 * TODO: This uses the old API, we want to use Xft
 		 */
-		xcb_poly_text_8(
-			conn, target, gc,
-			x, y, text.size(), (const uint8_t*)text.c_str()
+		printf("Target: %d, GC: %d\n", target, gc);
+		auto cookie = xcb_image_text_8_checked(
+			conn, text.size(), target, gc,
+			x, y, text.c_str()
 		);
+		
+		auto* error = xcb_request_check(conn, cookie);
+		if(error) {
+			printError(error);
+		}
 	}
 };
 
-struct Font {
-	xcb_font_t font;
+uint openFont(const std::string& name) {
+	uint id = xcb_generate_id(conn);
+	auto cookie = xcb_open_font_checked(conn, id, name.size(), name.c_str());
 	
-	Font(const std::string& name) {
-		
+	auto* error = xcb_request_check(conn, cookie);
+	if(error) {
+		printf("Font: %s ", name.c_str());
+		printError(error);
 	}
-	
-	~Font() {
-		xcb_close_font(conn, font);
-	}
-	
-	
-};
+	return id;
+}
+
+void closeFont(xcb_font_t font) {
+	xcb_close_font(conn, font);
+}
 
 }}
 

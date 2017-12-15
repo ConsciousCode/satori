@@ -13,11 +13,13 @@
 			"Debug": {
 				"defines": ["DEBUG", "_DEBUG"],
 				"cflags": [
-					"-g", "-O0",
+					"-g", "-O0", "-fexceptions",
 					"-Wpedantic", "-Werror",
 					"-fmax-errors=1"
 				],
-				"cflags_cc!": ["-fno-rtti"]
+				"cflags_cc!": [
+					"-fno-rtti", "-fno-exceptions"
+				]
 			},
 			"Release": {
 				"cflags": ["-Ofast"]

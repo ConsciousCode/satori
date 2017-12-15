@@ -3,6 +3,7 @@
 #include "native.hpp"
 
 #include <cstdio>
+#include <vector>
 
 // Styleguide exception: everything is in this namespace, so it's
 //  all given 0-indentation.
@@ -79,11 +80,8 @@ struct RenderTarget {
 		// Alpha is ignored for now, see the XRender extension
 		auto cookie = xcb_alloc_color(
 			conn, cmap,
-			r, g, b
-//			double_bits(r), double_bits(g), double_bits(b)
+			double_bits(r), double_bits(g), double_bits(b)
 		);
-		
-		printf("Color: %d, %d, %d\n", double_bits(r), double_bits(g), double_bits(b));
 		
 		// Trailing NULL is error
 		xcb_generic_error_t* error;
@@ -94,8 +92,8 @@ struct RenderTarget {
 		return reply->pixel;
 	}
 	
-	void deallocColors(uint len, uint* ids) {
-		xcb_free_colors(conn, cmap, 0, len, ids);
+	void deallocColors(const std::vector<uint>& ids) {
+		xcb_free_colors(conn, cmap, 0, ids.size(), ids.data());
 	}
 };
 
@@ -353,6 +351,30 @@ struct Window : public RenderTarget {
 	}
 };
 
+#define GC_STYLE_LEN 8
+int build_gc_style(display::Style style, int* cur) {
+	int mask = 0;
+	
+	if(style.fg) {
+		*(cur++) = style.fg;
+		mask |= XCB_GC_FOREGROUND;
+	}
+	if(style.bg) {
+		*(cur++) = style.bg;
+		mask |= XCB_GC_BACKGROUND;
+	}
+	if(style.line_width) {
+		*(cur++) = style.line_width;
+		mask |= XCB_GC_LINE_WIDTH;
+	}
+	if(style.font) {
+		*(cur++) = style.font;
+		mask |= XCB_GC_FONT;
+	}
+	
+	return mask;
+}
+
 struct GraphicsContext {
 	xcb_gcontext_t gc;
 	xcb_drawable_t target;
@@ -362,31 +384,92 @@ struct GraphicsContext {
 	}
 	
 	//GraphicsContext(target, fg, bg, lw, ls, cap, join, fill_style, fill_rule, font, clip, ...)
-	GraphicsContext(Window* w, int fg, int bg, int lw) {
+	GraphicsContext(Window* w, display::Style style) {
 		gc = xcb_generate_id(conn);
 		target = w->win;
 		
-		int values[] = {fg, bg, lw};
-		
+		int values[GC_STYLE_LEN];
 		xcb_create_gc(
-			conn, gc, target,
-			XCB_GC_FOREGROUND | XCB_GC_BACKGROUND | XCB_GC_LINE_WIDTH,
-			values
+			conn, gc, target, build_gc_style(style, values), values
 		);
 	}
 	
-	void drawRects(int len, Quad* quads) {
-		auto* rects = new xcb_rectangle_t[len];
-		for(int i = 0; i < len; ++i) {
-			rects[i].x = quads[i].x1;
-			rects[i].y = quads[i].y1;
-			rects[i].width = quads[i].x2;
-			rects[i].height = quads[i].y2;
+	void setStyle(display::Style style) {
+		std::vector<int> values(GC_STYLE_LEN);
+		xcb_change_gc(
+			conn, gc, build_gc_style(style, values.data()), values.data()
+		);
+	}
+	
+	void drawPoints(bool rel, const std::vector<display::Point>& points) {
+		std::vector<xcb_point_t> xpoints(points.size());
+		auto cur = xpoints.begin();
+		
+		for(uint i = 0; i < xpoints.size(); ++i) {
+			cur->x = points[i].x;
+			cur->y = points[i].y;
+			++cur;
 		}
 		
-		xcb_poly_rectangle(conn, target, gc, len, rects);
+		xcb_poly_point(conn,
+			rel? XCB_COORD_MODE_PREVIOUS : XCB_COORD_MODE_ORIGIN,
+			target, gc, xpoints.size(), xpoints.data()
+		);
+	}
+	
+	void drawLines(bool rel, const std::vector<display::Line>& lines) {
+		std::vector<xcb_point_t> points(2*lines.size());
+		auto cur = points.begin();
 		
-		delete[] rects;
+		for(uint i = 0; i < lines.size(); ++i) {
+			cur->x = lines[i].x1;
+			cur->y = lines[i].y1;
+			++cur;
+			cur->x = lines[i].x2;
+			cur->y = lines[i].y2;
+			++cur;
+		}
+		
+		xcb_poly_line(conn, 
+			rel? XCB_COORD_MODE_PREVIOUS : XCB_COORD_MODE_ORIGIN,
+			target, gc, 2*points.size(), points.data()
+		);
+	}
+	
+	void drawRects(bool fill, const std::vector<display::Rect>& rects) {
+		std::vector<xcb_rectangle_t> xrects(rects.size());
+		auto cur = xrects.begin();
+		
+		for(uint i = 0; i < xrects.size(); ++i) {
+			cur->x = rects[i].x;
+			cur->y = rects[i].y;
+			cur->width = rects[i].w;
+			cur->height = rects[i].h;
+		}
+		
+		(fill? xcb_poly_fill_rectangle : xcb_poly_rectangle)(
+			conn, target, gc, xrects.size(), xrects.data()
+		);
+	}
+	
+	void drawOvals(bool fill, std::vector<display::Ellipse>& ellipses) {
+		/* TODO */
+	}
+	
+	void drawPolygons(
+		bool close, bool fill, std::vector<display::Point>& verts
+	) {
+		/* TODO */
+	}
+	
+	void drawText(int x, int y, const std::string& text) {
+		/*
+		 * TODO: This uses the old API, we want to use Xft
+		 */
+		xcb_poly_text_8(
+			conn, target, gc,
+			x, y, text.size(), (const uint8_t*)text.c_str()
+		);
 	}
 };
 

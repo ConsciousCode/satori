@@ -129,9 +129,58 @@ namespace satori {
 		};
 	}
 	
-	struct Quad {
-		int x1, y1, x2, y2;
-	};
+	namespace display {
+		struct Color {
+			uint8_t r, g, b, a;
+		};
+		
+		struct Line {
+			int x1, y1, x2, y2;
+		};
+		
+		struct Rect {
+			int x, y;
+			uint w, h;
+		};
+		
+		struct Ellipse {
+			int cx, cy;
+			uint rx, ry;
+		};
+		
+		struct Point {
+			int x, y;
+		};
+		
+		typedef uint font_id_t;
+		typedef uint color_id_t;
+		
+		struct Style {
+			color_id_t fg, bg;
+			uint line_width;
+			
+			font_id_t font;
+			
+			/**
+			 * TODO:
+			 *  Composition function (GX)
+			 *  line style
+			 *  cap style
+			 *  join style
+			 *  fill style
+			 *  tiling/stipling
+			 *  subwindow mode
+			 *  clipping
+			 *  arc mode
+			 *  generate exposure events
+			**/
+			
+			Style(
+				color_id_t fg, color_id_t bg,
+				uint lw, font_id_t font
+			):fg(fg), bg(bg), line_width(lw), font(font) {}
+		};
+	}
 	
 	/**
 	 * Forward declarations of native interfaces to be implemented
@@ -178,11 +227,18 @@ namespace satori {
 		};
 		
 		// Handle for rendering graphics
-		//
 		struct GraphicsContext {
-			GraphicsContext(target, fg, bg, lw, ls, cap, join, fill_style, fill_rule, font, clip, ...)
+			GraphicsContext(target, display::Style)
 			
-			drawRects(int len, Quad* quads)
+			setStyle(display::Style)
+			
+			drawPoints(rel, Point...)
+			drawLines(rel, Line...)
+			drawRects(fill, Rect...)
+			drawEllipses(fill, Ellipse...)
+			drawPolygons(close, fill, Point...)
+			
+			drawText(x, y, str...)
 		};
 		
 		struct Font {

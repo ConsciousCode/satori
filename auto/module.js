@@ -105,7 +105,6 @@ generate({
 					case event::WINDOW_PAINT: 
 						/* Nothing to add */
 						break;
-					}
 					
 					case event::UNKNOWN:
 						break;
@@ -129,15 +128,13 @@ generate({
 			));
 		`),
 		deallocColors: (`
-			auto* colors = new uint[args.Length()];
+			std::vector<uint> colors(args.Length());
 			
 			for(int i = 0; i < args.Length(); ++i) {
 				colors[i] = cpp<uint>(args[i]);
 			}
 			
-			self.deallocColors(args.Length(), colors);
-			
-			delete[] colors;
+			self.deallocColors(colors);
 		`)
 	}),
 	
@@ -148,10 +145,12 @@ generate({
 			auto* ww = NativeWindow::unwrap(args[0]);
 			
 			auto* jsgc = new NativeGraphicsContext(
-				&ww->native,
-				cpp<int>(args[1]),
-				cpp<int>(args[2]),
-				cpp<int>(args[3])
+				&ww->native, display::Style(
+					(display::color_id_t)cpp<int>(args[1]),
+					(display::color_id_t)cpp<int>(args[2]),
+					cpp<int>(args[3]),
+					(display::font_id_t)cpp<int>(args[4])
+				)
 			);
 			jsgc->Wrap(THIS);
 			
@@ -160,25 +159,67 @@ generate({
 		
 		constructor: (`
 			NativeGraphicsContext(
-				native::Window* ww, int fg, int bg, int lw
-			):native{ww, fg, bg, lw} {}
+				native::Window* ww, display::Style style
+			):native(ww, style) {}
 		`),
 		
-		drawRects: (`
-			//TODO: have a branch that doesn't uses stack memory
-			auto* quads = new Quad[args.Length()];
+		setStyle: (`
+			display::Style style(
+				cpp<uint>(args[0]),
+				cpp<uint>(args[1]),
+				cpp<uint>(args[2]),
+				cpp<uint>(args[3])
+			);
 			
-			for(int i = 0; i < args.Length(); ++i) {
-				auto rect = Local<Object>::Cast(args[i]);
-				quads[i].x1 = cpp<int>(rect->GET("x"));
-				quads[i].y1 = cpp<int>(rect->GET("y"));
-				quads[i].x2 = cpp<int>(rect->GET("width"));
-				quads[i].y2 = cpp<int>(rect->GET("height"));
+			self.setStyle(style);
+		`),
+		
+		drawPoints: (`
+			std::vector<display::Point> points(args.Length() - 1);
+			bool rel = cpp<bool>(args[0]);
+			
+			for(int i = 1; i < args.Length(); ++i) {
+				Local<Object> obj = cjs<Object>(args[i]);
+				points[i - 1] = display::Point{
+					cpp<int>(obj->GET("x")), cpp<int>(obj->GET("y"))
+				};
 			}
 			
-			self.drawRects(args.Length(), quads);
+			self.drawPoints(rel, points);
+		`),
+		drawLines: (`
+			std::vector<display::Line> lines(args.Length() - 1);
+			bool rel = cpp<bool>(args[0]);
 			
-			delete[] quads;
+			for(int i = 1; i < args.Length(); ++i) {
+				Local<Object> obj = cjs<Object>(args[i]);
+				lines[i - 1] = display::Line{
+					cpp<int>(obj->GET("x1")), cpp<int>(obj->GET("y1")),
+					cpp<int>(obj->GET("x2")), cpp<int>(obj->GET("y2"))
+				};
+			}
+			
+			self.drawLines(rel, lines);
+		`),
+		drawRects: (`
+			std::vector<display::Rect> rects(args.Length() - 1);
+			bool fill = cpp<bool>(args[0]);
+			
+			for(int i = 1; i < args.Length(); ++i) {
+				Local<Object> obj = cjs<Object>(args[i]);
+				rects[i - 1] = display::Rect{
+					cpp<int>(obj->GET("x")), cpp<int>(obj->GET("y")),
+					cpp<uint>(obj->GET("w")), cpp<uint>(obj->GET("h"))
+				};
+			}
+			
+			self.drawRects(fill, rects);
+		`),
+		drawText: (`
+			int x = cpp<int>(args[0]), y = cpp<int>(args[1]);
+			string text = cpp<string>(args[2]);
+			
+			self.drawText(x, y, text);
 		`)
 	})
 });

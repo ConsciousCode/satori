@@ -5,13 +5,18 @@ const
 
 var w = new satori.Window();
 
-let red = w.native.allocColor(255, 0, 0, 0);
+let
+	red = w.native.allocColor(255, 0, 0, 0),
+	blue = w.native.allocColor(0, 0, 255, 0);
+
+console.log("red:", red);
+console.log("blue:", blue);
 
 w.on('windowpaint', function(ev) {
 	let g = new satori.native.NativeGraphicsContext(
-		this.native, red, red, 4
+		this.native, blue, red, 4, 0
 	);
-	g.drawRects({x: 0, y: 0, width: 32, height: 32});
+	g.drawRects(false, {x: 0, y: 0, w: 32, h: 32});
 });
 w.on('keypress', console.log);
 

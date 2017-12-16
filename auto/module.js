@@ -171,10 +171,10 @@ generate({
 		
 		setStyle: (`
 			display::Style style(
-				cpp<uint>(args[0]),
-				cpp<uint>(args[1]),
-				cpp<uint>(args[2]),
-				cpp<uint>(args[3])
+				cpp<uint>(args[0]), // fg
+				cpp<uint>(args[1]), // bg
+				cpp<uint>(args[2]), // line_width
+				cpp<uint>(args[3])  // font
 			);
 			
 			self.setStyle(style);

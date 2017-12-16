@@ -527,6 +527,7 @@ uint openFont(const std::string& name) {
 	if(error) {
 		printf("Font: %s ", name.c_str());
 		printError(error);
+		return 0;
 	}
 	return id;
 }

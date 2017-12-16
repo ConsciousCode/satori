@@ -1,0 +1,41 @@
+Universal styling
+	Visibility:
+		Number = opacity
+		False = treat as 0-size
+	Background (color/image)
+	Cursor
+
+Text styling
+	Font
+	Text decoration
+	Font color
+	Font size
+	Tab size
+	Text alignment
+	Text direction?
+	Word spacing
+	Word wrapping
+	Justify content
+	Letter spacing
+	Line height
+
+Container styling
+	(Apply to 4 sides)
+	Border size
+	Border color
+	Border style
+	Border radius
+	Overflow policy
+
+Positioning defaults
+	Padding/margin
+	Width/height
+	Ordering policy
+
+Specific stylings
+	List style/type
+
+Styling can be per-element or dynamic, using a selector. Some examples:
+	User selection
+	Hovering
+	(Un)focus

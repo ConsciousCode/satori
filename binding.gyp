@@ -32,7 +32,7 @@
 				
 				"conditions": [
 					['xclient == "xcb"', {
-						"libraries": ["-lxcb"]
+						"libraries": ["-lxcb", "-lxcb-ewmh"]
 					}],
 					['xclient == "xlib"', {
 						"libraries": ["-lX11"]

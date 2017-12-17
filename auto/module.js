@@ -17,19 +17,38 @@ generate({
 		new: (`
 			//IsConstructCall check not included because it's extra
 			
-			auto* nw = new NativeWindow();
+			auto* nw = new NativeWindow(
+				// parent id
+				cpp<uint>(args[0]),
+				// x, y
+				cpp<int>(args[1]), cpp<int>(args[2]),
+				// w, h
+				cpp<uint>(args[3]), cpp<uint>(args[4]),
+				// border width
+				cpp<uint>(args[5]), cpp<uint>(args[6])
+			);
 			nw->Wrap(THIS);
 			RETURN(THIS);
 		`),
+		constructor: (`
+			NativeWindow(
+				window_id_t parent,
+				int x, int y, uint w, uint h, uint bw, uint bg
+			):native(parent, x, y, w, h, bw, bg) {}
+		`),
+		
+		close: "self.close()",
+		setBG: "self.setBG(cpp<uint>(args[0]))",
+		getID: "RETURN(self.getID())",
 		
 		getVisible: "RETURN(self.getVisible())",
 		setVisible: "self.setVisible(cpp<bool>(args[0]))",
 		
 		getPosition: "RETURN(self.getPosition())",
-		setPosition: "self.setVisible(cpp<bool>(args[0]))",
+		setPosition: "self.setVisible(cpp<uint>(args[0]))",
 		
 		getSize: "RETURN(self.getSize())",
-		setSize: "self.setSize(cpp<int>(args[0]))",
+		setSize: "self.setSize(cpp<uint>(args[0]))",
 		
 		getTitle: "RETURN(self.getTitle())",
 		setTitle: "self.setTitle(cpp<string>(args[0]))",
@@ -40,11 +59,15 @@ generate({
 			
 			if(self.pollEvent(&aev)) {
 				Local<Object> obj = OBJECT();
+				
 				obj->SET("code", (int)aev.code);
 				
 				switch(aev.code) {
 					case event::MOUSE_MOVE: {
 						event::mouse::Move& ev = aev.mouse.move;
+						
+						obj->SET("root", ev.root);
+						obj->SET("child", ev.child);
 						
 						obj->SET("x", ev.x);
 						obj->SET("y", ev.y);
@@ -54,11 +77,17 @@ generate({
 					case event::MOUSE_WHEEL: {
 						event::mouse::Wheel& ev = aev.mouse.wheel;
 						
+						obj->SET("root", ev.root);
+						obj->SET("child", ev.child);
+						
 						obj->SET("delta", ev.delta);
 						break;
 					}
 					case event::MOUSE_PRESS: {
 						event::mouse::Press& ev = aev.mouse.press;
+						
+						obj->SET("root", ev.root);
+						obj->SET("child", ev.child);
 						
 						obj->SET("button", (int)ev.button);
 						obj->SET("state", ev.state);
@@ -68,6 +97,9 @@ generate({
 					case event::MOUSE_HOVER: {
 						event::mouse::Hover& ev = aev.mouse.hover;
 						
+						obj->SET("root", ev.root);
+						obj->SET("child", ev.child);
+						
 						obj->SET("x", ev.x);
 						obj->SET("y", ev.y);
 						obj->SET("state", ev.state);
@@ -76,6 +108,9 @@ generate({
 					
 					case event::KEY_PRESS: {
 						event::key::Press& ev = aev.key.press;
+						
+						obj->SET("root", ev.root);
+						obj->SET("child", ev.child);
 						
 						obj->SET("button", (int)ev.button);
 						obj->SET("key", (int)ev.key);
@@ -109,6 +144,13 @@ generate({
 					}
 					
 					case event::WINDOW_PAINT: 
+						/* Nothing to add */
+						break;
+					
+					case event::WINDOW_OPEN:
+						/* Nothing to add */
+						break;
+					case event::WINDOW_CLOSE:
 						/* Nothing to add */
 						break;
 					
@@ -152,10 +194,10 @@ generate({
 			
 			auto* jsgc = new NativeGraphicsContext(
 				&ww->native, display::Style(
-					(display::color_id_t)cpp<int>(args[1]),
-					(display::color_id_t)cpp<int>(args[2]),
+					(color_id_t)cpp<int>(args[1]),
+					(color_id_t)cpp<int>(args[2]),
 					cpp<int>(args[3]),
-					(display::font_id_t)cpp<int>(args[4])
+					(font_id_t)cpp<int>(args[4])
 				)
 			);
 			jsgc->Wrap(THIS);

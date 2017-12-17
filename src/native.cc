@@ -1,4 +1,5 @@
 #include <xcb/xcb.h>
+#include <xcb/xcb_ewmh.h>
 
 #include "native.hpp"
 #include "x11error.hpp"
@@ -6,6 +7,12 @@
 #include <cstdio>
 #include <vector>
 #include <string>
+#include <stdexcept>
+#include <sstream>
+#include <iomanip>
+
+#define GC_STYLE_LEN 8
+#define WIN_ATTR_LEN 8
 
 // Styleguide exception: everything is in this namespace, so it's
 //  all given 0-indentation.
@@ -19,22 +26,7 @@ typedef uint32_t uint;
 static xcb_connection_t* conn = nullptr;
 static xcb_screen_t* screen = nullptr;
 
-#include "keysym.cc"
-
-static struct _Janitor {
-	~_Janitor() {
-		// screen doesn't need to be freed (TODO: verify this)
-		xcb_disconnect(conn);
-		deinit_keysym();
-	}
-} _janitor;
-
-void init_xcb() {
-	conn = xcb_connect(NULL, NULL);
-	screen = xcb_setup_roots_iterator(xcb_get_setup(conn)).data;
-	
-	init_keysym();
-}
+static xcb_ewmh_connection_t ewmh;
 
 // colormap, cursor, drawable, font, gc, id, pixmap, window
 // atom errors return atom
@@ -71,11 +63,43 @@ std::string xcb_describeError(xcb_generic_error_t* error) {
 	return desc + std::to_string(error->minor_code);
 }
 
-void printError(xcb_generic_error_t* error) {
-	printf("Error: %s\n", xcb_describeError(error).c_str());
+std::runtime_error buildError(const std::string& what, xcb_generic_error_t* error) {
+	return std::runtime_error(
+		what + " (" + xcb_describeError(error) + ")"
+	);
 }
 
-#define WIN_ATTR_MASK (XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK)
+#include "keysym.cc"
+
+static struct _Janitor {
+	~_Janitor() {
+		// screen doesn't need to be freed (TODO: verify this)
+		xcb_disconnect(conn);
+		deinit_keysym();
+	}
+} _janitor;
+
+uint intern_atom(const std::string& s) {
+	auto cookie = xcb_intern_atom(conn, 0, s.size(), s.c_str());
+	auto* reply = xcb_intern_atom_reply(conn, cookie, nullptr);
+	return reply->atom;
+}
+
+#define INTERN(x) x = intern_atom(#x)
+
+void init_xcb() {
+	conn = xcb_connect(NULL, NULL);
+	screen = xcb_setup_roots_iterator(xcb_get_setup(conn)).data;
+	
+	auto* cookies = xcb_ewmh_init_atoms(conn, &ewmh);
+	xcb_generic_error_t* error;
+	xcb_ewmh_init_atoms_replies(&ewmh, cookies, &error);
+	if(error) {
+		throw buildError("Initialization failed", error);
+	}
+	
+	init_keysym();
+}
 
 void globalFlush() {
 	xcb_flush(conn);
@@ -124,11 +148,18 @@ struct RenderTarget {
 			double_bits(r), double_bits(g), double_bits(b)
 		);
 		
-		// Trailing NULL is error
 		xcb_generic_error_t* error;
 		auto reply = xcb_alloc_color_reply(conn, cookie, &error);
 		if(error) {
-			printError(error);
+			std::stringstream ss;
+			ss.width(2);
+			ss << "Allocation of color #" <<
+				std::hex << std::setfill('0') <<
+				std::setw(2) << r <<
+				std::setw(2) << g <<
+				std::setw(2) << b <<
+				std::setw(2) << a << " failed";
+			throw buildError(ss.str(), error);
 		}
 		return reply->pixel;
 	}
@@ -141,71 +172,161 @@ struct RenderTarget {
 struct Window : public RenderTarget {
 	xcb_window_t win;
 	int event_mask;
+	bool visible;
 	
 	static void init() {
 		init_xcb();
 	}
 	
-	Window() {
+	Window(window_id_t parent, int x, int y, uint w, uint h, uint bw, color_id_t bg) {
 		if(!conn) {
 			init_xcb();
 		}
 		
-		event_mask = XCB_EVENT_MASK_EXPOSURE;
-		int values[2] = {(int)screen->white_pixel, event_mask};
+		if(parent == 0) {
+			parent = screen->root;
+		}
+		
+		event_mask = 0;
+		
+		int mask = 0;
+		int values[WIN_ATTR_LEN], *cur = &values[0];
+		
+		if(bg == 0) {
+			bg = screen->white_pixel;
+		}
+		
+		if(bg) {
+			mask |= XCB_CW_BACK_PIXEL;
+			*(cur++) = bg;
+		}
+		
+		mask |= XCB_CW_EVENT_MASK;
+		*(cur++) = event_mask;
+		
+		// Gives weird behavior with 0 sizes
+		if(w < 1) w = 1;
+		if(h < 1) h = 1;
 		
 		win = xcb_generate_id(conn);
-		xcb_create_window(
-			conn, XCB_COPY_FROM_PARENT, win, screen->root,
+		auto cookie = xcb_create_window(
+			conn, XCB_COPY_FROM_PARENT, win, parent,
 			// x, y, w, h (ignore for now)
-			0, 0, 400, 400,
-			1,
+			x, y, w, h, bw,
 			XCB_WINDOW_CLASS_INPUT_OUTPUT,
 			screen->root_visual,
-			WIN_ATTR_MASK, values
+			
+			mask, values
 		);
-		xcb_map_window(conn, win);
+		visible = false;
+		
+		auto* error = xcb_request_check(conn, cookie);
+		if(error) {
+			throw buildError("Window creation failed", error);
+		}
 		
 		cmap = xcb_generate_id(conn);
-		auto cookie = xcb_create_colormap(
+		cookie = xcb_create_colormap(
 			conn, XCB_COLORMAP_ALLOC_NONE,
 			cmap, win, screen->root_visual
 		);
-		auto* error = xcb_request_check(conn, cookie);
+		
+		error = xcb_request_check(conn, cookie);
 		if(error) {
-			printError(error);
+			throw buildError("Colormap allocation failed", error);
 		}
 		
 		xcb_flush(conn);
 	}
 	
 	~Window() {
-		//close()
+		close();
+	}
+	
+	window_id_t getID() {
+		return win;
+	}
+	
+	void close() {
+		if(win) {
+			xcb_destroy_window(conn, win);
+			win = 0;
+		}
+	}
+	
+	void setBG(color_id_t bg) {
+		int values[] = {(int)bg};
+		xcb_change_window_attributes(
+			conn, win, XCB_CW_BACK_PIXEL, values
+		);
 	}
 	
 	bool getVisible() {
-		return false;
+		return visible;
 	}
 	void setVisible(bool v) {
-	
+		if(v) {
+			xcb_map_window(conn, win);
+		}
+		else {
+			xcb_unmap_window(conn, win);
+		}
 	}
 	
 	int getPosition() {
-		return 0;
+		auto cookie = xcb_get_geometry(conn, win);
+		xcb_generic_error_t* error;
+		auto reply = xcb_get_geometry_reply(conn, cookie, &error);
+		if(error) {
+			throw buildError("Window.getPosition()", error);
+		}
+		
+		return (reply->x<<16)|reply->y;
 	}
 	void setPosition(int p) {
+		int values[] = {p>>16, p&0xffff};
+		xcb_configure_window(
+			conn, win,
+			XCB_CONFIG_WINDOW_X|XCB_CONFIG_WINDOW_Y,
+			values
+		);
 	}
 	
-	int getSize() {
-		return 0;
+	uint getSize() {
+		auto cookie = xcb_get_geometry(conn, win);
+		xcb_generic_error_t* error;
+		auto reply = xcb_get_geometry_reply(conn, cookie, &error);
+		if(error) {
+			throw buildError("Window.getSize()", error);
+		}
+		
+		return (reply->width<<16)|reply->height;
 	}
 	void setSize(int s) {
+		int values[] = {s>>16, s&0xffff};
+		xcb_configure_window(
+			conn, win,
+			XCB_CONFIG_WINDOW_WIDTH|XCB_CONFIG_WINDOW_HEIGHT,
+			values
+		);
 	}
 	
 	std::string getTitle() {
-		return "";
+		auto cookie = xcb_ewmh_get_wm_name(&ewmh, win);
+		
+		xcb_generic_error_t* error;
+		xcb_ewmh_get_utf8_strings_reply_t reply;
+		xcb_ewmh_get_wm_name_reply(
+			&ewmh, cookie, &reply, &error
+		);
+		if(error) {
+			throw buildError("Window.getTitle()", error);
+		}
+		
+		return std::string(reply.strings, reply.strings_len);
 	}
 	void setTitle(const std::string& s) {
+		xcb_ewmh_set_wm_name(&ewmh, win, s.size(), s.c_str());
 	}
 	
 	bool pollEvent(event::Any* ev) {
@@ -225,29 +346,45 @@ struct Window : public RenderTarget {
 				// Note: while xcb_button_press/release_event_t may
 				//  seem structurally compatible, C/++ makes no such
 				//  guarantee. Thus for type safety, extract detail
-				int rawdetail;
+				int rawdetail, root, child;
 				
-				case XCB_BUTTON_PRESS:
+				case XCB_BUTTON_PRESS: {
+					auto* xev = (xcb_button_press_event_t*)xcb_ev;
 					ev->mouse.press.state = true;
-					rawdetail =
-						((xcb_button_press_event_t*)xcb_ev)->detail;
-					goto mouse_ev;
-				case XCB_BUTTON_RELEASE:
+					
+					rawdetail = xev->detail;
+					root = xev->event;
+					child = xev->child;
+					
+					goto LABEL_mouse_event;
+				}
+				case XCB_BUTTON_RELEASE: {
+					auto* xev = (xcb_button_release_event_t*)xcb_ev;
 					ev->mouse.press.state = false;
-					rawdetail =
-						((xcb_button_release_event_t*)xcb_ev)->detail;
-					goto mouse_ev;
-				mouse_ev: {
+					
+					rawdetail = xev->detail;
+					root = xev->event;
+					child = xev->child;
+					
+					goto LABEL_mouse_event;
+				}
+				LABEL_mouse_event: {
 					xcb_button_index_t detail =
 						(xcb_button_index_t)rawdetail;
 					
 					// 4 and 5 are the mouse wheel "buttons"
 					if(detail == XCB_BUTTON_INDEX_4 || detail == XCB_BUTTON_INDEX_5) {
 						ev->code = event::MOUSE_WHEEL;
+						ev->mouse.wheel.root = root;
+						ev->mouse.wheel.child = child;
+						
 						ev->mouse.wheel.delta = detail;
 					}
 					else {
 						ev->code = event::MOUSE_PRESS;
+						ev->mouse.press.root = root;
+						ev->mouse.press.child = child;
+						
 						ev->mouse.press.button =
 							xcb2satori_mousebutton(
 								(xcb_button_index_t)detail
@@ -263,29 +400,51 @@ struct Window : public RenderTarget {
 				auto* xev = (xcb_motion_notify_event_t*)xcb_ev;
 				
 				ev->code = event::MOUSE_MOVE;
+				
+				ev->mouse.move.root = xev->event;
+				ev->mouse.move.child = xev->child;
+				
 				ev->mouse.move.x = xev->event_x;
 				ev->mouse.move.y = xev->event_y;
+				
 				break;
 			}
 			
 			/*** BEGIN: Mouse hover event handling ***/
 			{
-				int x, y;
+				int x, y, root, child;
 				
-				case XCB_ENTER_NOTIFY:
+				case XCB_ENTER_NOTIFY: {
+					auto* xev = (xcb_enter_notify_event_t*)xcb_ev;
 					ev->mouse.hover.state = true;
-					x = ((xcb_enter_notify_event_t*)xcb_ev)->event_x;
-					y = ((xcb_enter_notify_event_t*)xcb_ev)->event_y;
-					goto hover_ev;
-				case XCB_LEAVE_NOTIFY:
+					
+					root = xev->event;
+					child = xev->child;
+					x = xev->event_x;
+					y = xev->event_y;
+					
+					goto LABEL_hover_event;
+				}
+				case XCB_LEAVE_NOTIFY: {
+					auto* xev = (xcb_leave_notify_event_t*)xcb_ev;
 					ev->mouse.hover.state = false;
-					x = ((xcb_leave_notify_event_t*)xcb_ev)->event_x;
-					y = ((xcb_leave_notify_event_t*)xcb_ev)->event_y;
-					goto hover_ev;
-				hover_ev: {
+					
+					root = xev->event;
+					child = xev->child;
+					x = xev->event_x;
+					y = xev->event_y;
+					
+					goto LABEL_hover_event;
+				}
+				LABEL_hover_event: {
 					ev->code = event::MOUSE_HOVER;
+					
+					ev->mouse.hover.root = root;
+					ev->mouse.hover.child = child;
+					
 					ev->mouse.hover.x = x;
 					ev->mouse.hover.y = y;
+					
 					break;
 				}
 			}
@@ -293,23 +452,37 @@ struct Window : public RenderTarget {
 			
 			/*** BEGIN: Key press event handling ***/
 			{
-				int detail, state;
+				int detail, state, root, child;
 				
-				case XCB_KEY_PRESS:
+				case XCB_KEY_PRESS: {
+					auto* xev = (xcb_key_press_event_t*)xcb_ev;
 					ev->key.press.state = true;
-					detail = ((xcb_key_press_event_t*)xcb_ev)->detail;
-					state = ((xcb_key_press_event_t*)xcb_ev)->state;
-					goto key_ev;
-				case XCB_KEY_RELEASE:
+					
+					root = xev->event;
+					child = xev->child;
+					detail = xev->detail;
+					state = xev->state;
+					
+					goto LABEL_key_event;
+				}
+				case XCB_KEY_RELEASE: {
+					auto* xev = (xcb_key_release_event_t*)xcb_ev;
 					ev->key.press.state = false;
-					detail = ((xcb_key_release_event_t*)xcb_ev)->detail;
-					state = ((xcb_key_release_event_t*)xcb_ev)->state;
-					goto key_ev;
-				key_ev: {
+					
+					root = xev->event;
+					child = xev->child;
+					detail = xev->detail;
+					state = xev->state;
+					
+					goto LABEL_key_event;
+				}
+				LABEL_key_event: {
 					xcb_keycode_t code = (xcb_keycode_t)detail;
 					xcb_mod_mask_t mods = (xcb_mod_mask_t)state;
 					
 					ev->code = event::KEY_PRESS;
+					ev->key.press.root = root;
+					ev->key.press.child = child;
 					
 					ev->key.press.key = event::key::UNKNOWN;
 					xcb2satori_keycode(
@@ -322,10 +495,26 @@ struct Window : public RenderTarget {
 					ev->key.press.ctrl = mods&XCB_MOD_MASK_CONTROL;
 					// lock?
 					ev->key.press.alt = mods&XCB_MOD_MASK_1;
+					
 					break;
 				}
 			}
 			/*** END: Key press event handling ***/
+				
+			case XCB_CREATE_NOTIFY: {
+				//auto* xev = (xcb_create_notify_event_t*)xcb_ev;
+				
+				ev->code = event::WINDOW_OPEN;
+				
+				break;
+			}
+			case XCB_DESTROY_NOTIFY: {
+				//auto* xev = (xcb_destroy_notify_event_t*)xcb_ev;
+				
+				ev->code = event::WINDOW_CLOSE;
+				
+				break;
+			}
 			
 			default: goto LABEL_no_impl;
 		}
@@ -375,23 +564,28 @@ struct Window : public RenderTarget {
 			case event::WINDOW_PAINT:
 				event_mask |= XCB_EVENT_MASK_EXPOSURE;
 				break;
-			//MouseOver, MouseOut
+			
+			case event::WINDOW_OPEN:
+				//event_mask |= XCB_EVENT_MASK_CREATE_NOTIFY;
+				break;
+			case event::WINDOW_CLOSE:
+				//event_mask |= XCB_EVENT_MASK_DESTROY_NOTIFY;
+				break;
 			
 			case event::UNKNOWN:
 				return;
 		}
 		
 		if(event_mask != old) {
-			int values[2] = {(int)screen->white_pixel, event_mask};
+			int values[] = {event_mask};
 			
 			xcb_change_window_attributes(
-				conn, win, WIN_ATTR_MASK, values
+				conn, win, XCB_CW_EVENT_MASK, values
 			);
 		}
 	}
 };
 
-#define GC_STYLE_LEN 8
 int build_gc_style(display::Style style, int* cur) {
 	int mask = 0;
 	
@@ -514,7 +708,7 @@ struct GraphicsContext {
 		
 		auto* error = xcb_request_check(conn, cookie);
 		if(error) {
-			printError(error);
+			throw buildError("Window.drawText()", error);
 		}
 	}
 };
@@ -525,9 +719,7 @@ uint openFont(const std::string& name) {
 	
 	auto* error = xcb_request_check(conn, cookie);
 	if(error) {
-		printf("Font: %s ", name.c_str());
-		printError(error);
-		return 0;
+		throw buildError("openFont()", error);
 	}
 	return id;
 }

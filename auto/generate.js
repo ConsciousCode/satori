@@ -75,10 +75,15 @@ function method_declare(klass, name, body) {
 function method_implement(klass, name, body) {
 	return normalize(`
 		${makefun(klass + "::" + name)} {
-			[[maybe_unused]] auto* isolate = args.GetIsolate();
+			auto* isolate = args.GetIsolate();
 			auto* wrapper = ${klass}::unwrap(args.Holder());
 			auto& self = wrapper->native;
-			${'\n' + indent(body, 3)};
+			try {
+				${'\n' + indent(body, 4)};
+			}
+			catch(std::runtime_error error) {
+				isolate->ThrowException(JS(error.what()));
+			}
 		}`);
 }
 
@@ -94,7 +99,12 @@ class Fun {
 		`), normalize(`
 			${makefun("_wrap_" + this.name)} {
 				[[maybe_unused]] auto* isolate = args.GetIsolate();
-				${this.body};
+				try {
+					${this.body};
+				}
+				catch(std::runtime_error error) {
+					isolate->ThrowException(JS(error.what()));
+				}
 			}
 			
 			void _init_${this.name}(Local<Object> exports) {
@@ -132,7 +142,9 @@ class Class {
 	}
 	
 	generate(native, wrap) {
-		return [normalize(`
+		return [
+		// Declarations
+		normalize(`
 			struct ${wrap} : public ObjectWrap {
 				static Persistent<Function> constructor;
 				
@@ -183,7 +195,9 @@ class Class {
 				${indent(this.cc, 4)}
 			};
 			Persistent<Function> ${wrap}::constructor;
-		`), normalize(`
+		`),
+		// Implementations
+		normalize(`
 			${makefun(wrap + "::jsnew")} {
 				[[maybe_unused]] auto* isolate = args.GetIsolate();
 				${'\n' + indent(this.cons, 4)};
@@ -198,7 +212,9 @@ class Class {
 				}
 				return '\n' + out.join('\n\n');
 			})()}
-		`), normalize(`
+		`),
+		// Module init
+		normalize(`
 			${wrap}::init(exports);
 		`)];
 	}

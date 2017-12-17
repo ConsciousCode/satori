@@ -53,7 +53,7 @@ template<>
 inline bool cpp(Var v) {
 	#ifdef DEBUG
 		if(!v->IsBoolean()) {
-			throw std::logic_error("cpp<bool> got" + js_typeof(v));
+			throw std::logic_error("cpp<bool> got " + js_typeof(v));
 		}
 	#endif
 	return v->BooleanValue();
@@ -63,7 +63,7 @@ template<>
 inline int cpp(Var v) {
 	#ifdef DEBUG
 		if(!v->IsNumber()) {
-			throw std::logic_error("cpp<int> got" + js_typeof(v));
+			throw std::logic_error("cpp<int> got " + js_typeof(v));
 		}
 	#endif
 	return v->IntegerValue();
@@ -73,7 +73,7 @@ template<>
 inline uint cpp(Var v) {
 	#ifdef DEBUG
 		if(!v->IsNumber()) {
-			throw std::logic_error("cpp<uint> got" + js_typeof(v));
+			throw std::logic_error("cpp<uint> got " + js_typeof(v));
 		}
 	#endif
 	return v->IntegerValue();
@@ -83,7 +83,7 @@ template<>
 inline string cpp(Var v) {
 	#ifdef DEBUG
 		if(!v->IsString()) {
-			throw std::logic_error("cpp<string> got" + js_typeof(v));
+			throw std::logic_error("cpp<string> got " + js_typeof(v));
 		}
 	#endif
 	return *String::Utf8Value(v->ToString());
@@ -126,7 +126,7 @@ template<>
 inline Local<Object> cjs(Local<Value> v) {
 	#ifdef DEBUG
 		if(!v->IsObject()) {
-			throw std::logic_error("cpp<Object> got" + js_typeof(v));
+			throw std::logic_error("cpp<Object> got " + js_typeof(v));
 		}
 	#endif
 	

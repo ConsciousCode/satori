@@ -2,8 +2,13 @@
 #define NODE_SATORI_NATIVE_HPP
 
 #include <utility>
+#include <stdexcept>
 
 namespace satori {
+	typedef uint font_id_t;
+	typedef uint color_id_t;
+	typedef uint window_id_t;
+	
 	// Event handling
 	namespace event {
 		enum Code {
@@ -12,7 +17,11 @@ namespace satori {
 			MOUSE_HOVER = 4,
 			KEY_PRESS = 5,
 			WINDOW_MOVE = 6, WINDOW_RESIZE = 7, WINDOW_FOCUS = 8,
-			WINDOW_PAINT = 9
+			WINDOW_PAINT = 9, WINDOW_OPEN = 10, WINDOW_CLOSE = 11
+		};
+		
+		struct Input {
+			window_id_t root, child;
 		};
 		
 		namespace mouse {
@@ -21,21 +30,21 @@ namespace satori {
 				LEFT = 1, MIDDLE = 2, RIGHT = 3
 			};
 			
-			struct Move {
+			struct Move : public Input {
 				int x, y;
 				bool dragging;
 			};
 			
-			struct Wheel {
+			struct Wheel : public Input {
 				int delta;
 			};
 			
-			struct Press {
+			struct Press : public Input {
 				Button button;
 				bool state, dragging;
 			};
 			
-			struct Hover {
+			struct Hover : public Input {
 				int x, y;
 				bool state;
 			};
@@ -78,7 +87,7 @@ namespace satori {
 				N6 = '6', N7 = '7', N8 = '8', N9 = '9', N0 = '0'
 			};
 			
-			struct Press {
+			struct Press : public Input {
 				Button button, key;
 				bool state;
 				bool shift, ctrl, alt, meta;
@@ -99,6 +108,14 @@ namespace satori {
 			};
 			
 			struct Paint {
+			
+			};
+			
+			struct Open {
+			
+			};
+			
+			struct Close {
 			
 			};
 		}
@@ -124,6 +141,8 @@ namespace satori {
 					window::Resize resize;
 					window::Focus focus;
 					window::Paint paint;
+					window::Open open;
+					window::Close close;
 				} window;
 			};
 		};
@@ -151,9 +170,6 @@ namespace satori {
 		struct Point {
 			int x, y;
 		};
-		
-		typedef uint font_id_t;
-		typedef uint color_id_t;
 		
 		struct Style {
 			color_id_t fg, bg;
@@ -188,6 +204,7 @@ namespace satori {
 	**/
 	namespace native {
 		/*
+		struct WMError;
 		struct RenderTarget;
 		struct Window;
 		struct Graphics;

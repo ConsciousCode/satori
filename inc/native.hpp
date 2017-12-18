@@ -17,7 +17,7 @@ namespace satori {
 			MOUSE_HOVER = 4,
 			KEY_PRESS = 5,
 			WINDOW_MOVE = 6, WINDOW_RESIZE = 7, WINDOW_FOCUS = 8,
-			WINDOW_PAINT = 9, WINDOW_OPEN = 10, WINDOW_CLOSE = 11
+			WINDOW_DRAW = 9, WINDOW_OPEN = 10, WINDOW_CLOSE = 11
 		};
 		
 		struct Input {
@@ -107,7 +107,7 @@ namespace satori {
 				bool state;
 			};
 			
-			struct Paint {
+			struct Draw {
 			
 			};
 			
@@ -140,7 +140,7 @@ namespace satori {
 					window::Move move;
 					window::Resize resize;
 					window::Focus focus;
-					window::Paint paint;
+					window::Draw draw;
 					window::Open open;
 					window::Close close;
 				} window;

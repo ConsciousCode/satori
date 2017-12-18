@@ -338,7 +338,7 @@ struct Window : public RenderTarget {
 		
 		switch(xcb_ev->response_type & ~0x80) {
 			case XCB_EXPOSE:
-				ev->code = event::WINDOW_PAINT;
+				ev->code = event::WINDOW_DRAW;
 				break;
 			
 			/*** BEGIN: Mouse press event handling ***/
@@ -561,7 +561,7 @@ struct Window : public RenderTarget {
 				event_mask |= XCB_EVENT_MASK_FOCUS_CHANGE;
 				break;
 			
-			case event::WINDOW_PAINT:
+			case event::WINDOW_DRAW:
 				event_mask |= XCB_EVENT_MASK_EXPOSURE;
 				break;
 			
@@ -583,6 +583,11 @@ struct Window : public RenderTarget {
 				conn, win, XCB_CW_EVENT_MASK, values
 			);
 		}
+	}
+	
+	void redraw() {
+		int size = getSize();
+		xcb_clear_area(conn, 1, win, 0, 0, size>>16, size&0xffff);
 	}
 };
 

@@ -143,7 +143,7 @@ generate({
 						break;
 					}
 					
-					case event::WINDOW_PAINT: 
+					case event::WINDOW_DRAW: 
 						/* Nothing to add */
 						break;
 					
@@ -164,8 +164,9 @@ generate({
 		listenEvent:
 			"self.listenEvent((event::Code)cpp<int>(args[0]))",
 		
-		maxColorMappings:
-			"RETURN(self.maxColorMappings())",
+		maxColorMappings: "RETURN(self.maxColorMappings())",
+		
+		redraw: "self.redraw()",
 		
 		allocColor: (`
 			RETURN(self.allocColor(

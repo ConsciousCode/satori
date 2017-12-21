@@ -23,7 +23,7 @@ namespace native {
 typedef uint32_t uint;
 
 // We only really need to manage one connection to xorg no matter
-//  how many windows we create.
+//  how many frames we create.
 static xcb_connection_t* conn = nullptr;
 static xcb_screen_t* screen = nullptr;
 
@@ -186,9 +186,9 @@ struct RenderTarget {
 };
 
 struct Frame : public RenderTarget {
-	static std::set<Frame*> windows;
+	static std::set<Frame*> toflush;
 	
-	xcb_window_t win;
+	xcb_window_t frame;
 	int event_mask;
 	bool visible;
 	
@@ -205,7 +205,7 @@ struct Frame : public RenderTarget {
 			h.clean(mask, cur, XCB_CONFIG_WINDOW_HEIGHT);
 			bw.clean(mask, cur, XCB_CONFIG_WINDOW_BORDER_WIDTH);
 			
-			xcb_configure_window(conn, self->win, mask, values);
+			xcb_configure_window(conn, self->frame, mask, values);
 		}
 	} configure_cache;
 	
@@ -213,8 +213,6 @@ struct Frame : public RenderTarget {
 	}
 	
 	Frame(window_id_t parent, int x, int y, uint w, uint h, uint bw, color_id_t bg) {
-		windows.insert(this);
-		
 		if(!conn) {
 			init_xcb();
 		}
@@ -244,9 +242,9 @@ struct Frame : public RenderTarget {
 		if(w < 1) w = 1;
 		if(h < 1) h = 1;
 		
-		win = xcb_generate_id(conn);
+		frame = xcb_generate_id(conn);
 		auto cookie = xcb_create_window(
-			conn, XCB_COPY_FROM_PARENT, win, parent,
+			conn, XCB_COPY_FROM_PARENT, frame, parent,
 			// x, y, w, h (ignore for now)
 			x, y, w, h, bw,
 			XCB_WINDOW_CLASS_INPUT_OUTPUT,
@@ -264,7 +262,7 @@ struct Frame : public RenderTarget {
 		cmap = xcb_generate_id(conn);
 		cookie = xcb_create_colormap(
 			conn, XCB_COLORMAP_ALLOC_NONE,
-			cmap, win, screen->root_visual
+			cmap, frame, screen->root_visual
 		);
 		
 		error = xcb_request_check(conn, cookie);
@@ -280,25 +278,25 @@ struct Frame : public RenderTarget {
 	}
 	
 	void setParent(window_id_t parent) {
-		xcb_reparent_window(conn, win, parent, 0, 0);
+		xcb_reparent_window(conn, frame, parent, 0, 0);
 	}
 	
 	window_id_t getID() {
-		return win;
+		return frame;
 	}
 	
 	void close() {
-		if(win) {
-			windows.erase(this);
-			xcb_destroy_window(conn, win);
-			win = 0;
+		if(frame) {
+			toflush.erase(this);
+			xcb_destroy_window(conn, frame);
+			frame = 0;
 		}
 	}
 	
 	void setBG(color_id_t bg) {
 		int values[] = {(int)bg};
 		xcb_change_window_attributes(
-			conn, win, XCB_CW_BACK_PIXEL, values
+			conn, frame, XCB_CW_BACK_PIXEL, values
 		);
 	}
 	
@@ -307,15 +305,15 @@ struct Frame : public RenderTarget {
 	}
 	void setVisible(bool v) {
 		if(v) {
-			xcb_map_window(conn, win);
+			xcb_map_window(conn, frame);
 		}
 		else {
-			xcb_unmap_window(conn, win);
+			xcb_unmap_window(conn, frame);
 		}
 	}
 	
 	int getPosition() {
-		auto cookie = xcb_get_geometry(conn, win);
+		auto cookie = xcb_get_geometry(conn, frame);
 		xcb_generic_error_t* error;
 		auto reply = xcb_get_geometry_reply(conn, cookie, &error);
 		if(error) {
@@ -327,10 +325,11 @@ struct Frame : public RenderTarget {
 	void setPosition(int p) {
 		configure_cache.x.set(p>>16);
 		configure_cache.y.set(p&0xffff);
+		toflush.insert(this);
 	}
 	
 	uint getSize() {
-		auto cookie = xcb_get_geometry(conn, win);
+		auto cookie = xcb_get_geometry(conn, frame);
 		xcb_generic_error_t* error;
 		auto reply = xcb_get_geometry_reply(conn, cookie, &error);
 		if(error) {
@@ -342,10 +341,11 @@ struct Frame : public RenderTarget {
 	void setSize(int s) {
 		configure_cache.w.set(s>>16);
 		configure_cache.h.set(s&0xffff);
+		toflush.insert(this);
 	}
 	
 	std::string getTitle() {
-		auto cookie = xcb_ewmh_get_wm_name(&ewmh, win);
+		auto cookie = xcb_ewmh_get_wm_name(&ewmh, frame);
 		
 		xcb_generic_error_t* error;
 		xcb_ewmh_get_utf8_strings_reply_t reply;
@@ -359,7 +359,7 @@ struct Frame : public RenderTarget {
 		return std::string(reply.strings, reply.strings_len);
 	}
 	void setTitle(const std::string& s) {
-		xcb_ewmh_set_wm_name(&ewmh, win, s.size(), s.c_str());
+		xcb_ewmh_set_wm_name(&ewmh, frame, s.size(), s.c_str());
 	}
 	
 	bool pollEvent(event::Any* ev) {
@@ -613,17 +613,17 @@ struct Frame : public RenderTarget {
 			int values[] = {event_mask};
 			
 			xcb_change_window_attributes(
-				conn, win, XCB_CW_EVENT_MASK, values
+				conn, frame, XCB_CW_EVENT_MASK, values
 			);
 		}
 	}
 	
 	void redraw() {
 		int size = getSize();
-		xcb_clear_area(conn, 1, win, 0, 0, size>>16, size&0xffff);
+		xcb_clear_area(conn, 1, frame, 0, 0, size>>16, size&0xffff);
 	}
 };
-std::set<Frame*> Frame::windows;
+std::set<Frame*> Frame::toflush;
 
 int build_gc_style(display::Style style, int* cur) {
 	int mask = 0;
@@ -649,7 +649,7 @@ int build_gc_style(display::Style style, int* cur) {
 }
 
 struct GraphicsContext {
-	static std::set<GraphicsContext*> gcs;
+	static std::set<GraphicsContext*> toflush;
 	
 	xcb_gcontext_t gc;
 	xcb_drawable_t target;
@@ -701,10 +701,8 @@ struct GraphicsContext {
 	
 	//GraphicsContext(target, fg, bg, lw, ls, cap, join, fill_style, fill_rule, font, clip, ...)
 	GraphicsContext(Frame* w, display::Style style) {
-		gcs.insert(this);
-		
 		gc = xcb_generate_id(conn);
-		target = w->win;
+		target = w->frame;
 		
 		int values[GC_STYLE_LEN];
 		xcb_create_gc(
@@ -713,20 +711,24 @@ struct GraphicsContext {
 	}
 	
 	~GraphicsContext() {
-		gcs.erase(this);
+		toflush.erase(this);
 	}
 	
 	void setFG(color_id_t fg) {
 		style_cache.fg.set(fg);
+		toflush.insert(this);
 	}
 	void setBG(color_id_t bg) {
 		style_cache.bg.set(bg);
+		toflush.insert(this);
 	}
 	void setLineWidth(uint lw) {
 		style_cache.lw.set(lw);
+		toflush.insert(this);
 	}
 	void setFont(font_id_t font) {
 		style_cache.font.set(font);
+		toflush.insert(this);
 	}
 	
 	void drawPoints(bool rel, const std::vector<display::Point>& points) {
@@ -806,7 +808,7 @@ struct GraphicsContext {
 		}
 	}
 };
-std::set<GraphicsContext*> GraphicsContext::gcs;
+std::set<GraphicsContext*> GraphicsContext::toflush;
 
 uint openFont(const std::string& name) {
 	uint id = xcb_generate_id(conn);
@@ -824,10 +826,10 @@ void closeFont(xcb_font_t font) {
 }
 
 void globalFlush() {
-	for(auto* w : Frame::windows) {
-		w->configure_cache.flush(w);
+	for(auto* f : Frame::toflush) {
+		f->configure_cache.flush(f);
 	}
-	for(auto* gc : GraphicsContext::gcs) {
+	for(auto* gc : GraphicsContext::toflush) {
 		gc->style_cache.flush(gc);
 	}
 	xcb_flush(conn);

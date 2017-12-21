@@ -1,7 +1,7 @@
 #include <xcb/xcb.h>
 #include <xcb/xcb_ewmh.h>
 
-#include "native.hpp"
+#include "native-interface.hpp"
 #include "x11error.hpp"
 
 #include <cstdio>
@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <sstream>
 #include <iomanip>
+#include <set>
 
 #define GC_STYLE_LEN 8
 #define WIN_ATTR_LEN 8
@@ -27,6 +28,37 @@ static xcb_connection_t* conn = nullptr;
 static xcb_screen_t* screen = nullptr;
 
 static xcb_ewmh_connection_t ewmh;
+
+#include "keysym.cc"
+
+static struct _Janitor {
+	~_Janitor() {
+		// screen doesn't need to be freed (TODO: verify this)
+		xcb_disconnect(conn);
+		deinit_keysym();
+	}
+} _janitor;
+
+// Makes it easy to keep track of what's dirty and what's not
+//  so we can batch x server messages
+template<typename T>
+struct Dirty {
+	bool dirty;
+	T value;
+	
+	void set(T v) {
+		dirty = true;
+		value = v;
+	}
+	
+	void clean(int& mask, int*& cur, int bit) {
+		if(dirty) {
+			mask |= bit;
+			*(cur++) = (int)value;
+			dirty = false;
+		}
+	}
+};
 
 // colormap, cursor, drawable, font, gc, id, pixmap, window
 // atom errors return atom
@@ -69,26 +101,8 @@ std::runtime_error buildError(const std::string& what, xcb_generic_error_t* erro
 	);
 }
 
-#include "keysym.cc"
-
-static struct _Janitor {
-	~_Janitor() {
-		// screen doesn't need to be freed (TODO: verify this)
-		xcb_disconnect(conn);
-		deinit_keysym();
-	}
-} _janitor;
-
-uint intern_atom(const std::string& s) {
-	auto cookie = xcb_intern_atom(conn, 0, s.size(), s.c_str());
-	auto* reply = xcb_intern_atom_reply(conn, cookie, nullptr);
-	return reply->atom;
-}
-
-#define INTERN(x) x = intern_atom(#x)
-
 void init_xcb() {
-	conn = xcb_connect(NULL, NULL);
+	conn = xcb_connect(nullptr, nullptr);
 	screen = xcb_setup_roots_iterator(xcb_get_setup(conn)).data;
 	
 	auto* cookies = xcb_ewmh_init_atoms(conn, &ewmh);
@@ -99,10 +113,6 @@ void init_xcb() {
 	}
 	
 	init_keysym();
-}
-
-void globalFlush() {
-	xcb_flush(conn);
 }
 
 event::mouse::Button xcb2satori_mousebutton(xcb_button_index_t code) {
@@ -141,7 +151,13 @@ struct RenderTarget {
 		return 1;
 	}
 	
-	uint allocColor(uint r, uint g, uint b, uint a) {
+	uint allocColor(uint rgba) {
+		uint
+			r = rgba>>24,
+			g = (rgba>>16)&0xff,
+			b = (rgba>>8)&0xff,
+			a = rgba&0xff;
+		
 		// Alpha is ignored for now, see the XRender extension
 		auto cookie = xcb_alloc_color(
 			conn, cmap,
@@ -170,15 +186,35 @@ struct RenderTarget {
 };
 
 struct Window : public RenderTarget {
+	static std::set<Window*> windows;
+	
 	xcb_window_t win;
 	int event_mask;
 	bool visible;
 	
+	struct ConfigureCache {
+		Dirty<int> x, y;
+		Dirty<uint> w, h, bw;
+		
+		void flush(Window* self) {
+			int values[7], *cur = &values[0], mask = 0;
+			
+			x.clean(mask, cur, XCB_CONFIG_WINDOW_X);
+			y.clean(mask, cur, XCB_CONFIG_WINDOW_Y);
+			w.clean(mask, cur, XCB_CONFIG_WINDOW_WIDTH);
+			h.clean(mask, cur, XCB_CONFIG_WINDOW_HEIGHT);
+			bw.clean(mask, cur, XCB_CONFIG_WINDOW_BORDER_WIDTH);
+			
+			xcb_configure_window(conn, self->win, mask, values);
+		}
+	} configure_cache;
+	
 	static void init() {
-		init_xcb();
 	}
 	
 	Window(window_id_t parent, int x, int y, uint w, uint h, uint bw, color_id_t bg) {
+		windows.insert(this);
+		
 		if(!conn) {
 			init_xcb();
 		}
@@ -243,12 +279,17 @@ struct Window : public RenderTarget {
 		close();
 	}
 	
+	void setParent(window_id_t parent) {
+		xcb_reparent_window(conn, win, parent, 0, 0);
+	}
+	
 	window_id_t getID() {
 		return win;
 	}
 	
 	void close() {
 		if(win) {
+			windows.erase(this);
 			xcb_destroy_window(conn, win);
 			win = 0;
 		}
@@ -284,12 +325,8 @@ struct Window : public RenderTarget {
 		return (reply->x<<16)|reply->y;
 	}
 	void setPosition(int p) {
-		int values[] = {p>>16, p&0xffff};
-		xcb_configure_window(
-			conn, win,
-			XCB_CONFIG_WINDOW_X|XCB_CONFIG_WINDOW_Y,
-			values
-		);
+		configure_cache.x.set(p>>16);
+		configure_cache.y.set(p&0xffff);
 	}
 	
 	uint getSize() {
@@ -303,12 +340,8 @@ struct Window : public RenderTarget {
 		return (reply->width<<16)|reply->height;
 	}
 	void setSize(int s) {
-		int values[] = {s>>16, s&0xffff};
-		xcb_configure_window(
-			conn, win,
-			XCB_CONFIG_WINDOW_WIDTH|XCB_CONFIG_WINDOW_HEIGHT,
-			values
-		);
+		configure_cache.w.set(s>>16);
+		configure_cache.h.set(s&0xffff);
 	}
 	
 	std::string getTitle() {
@@ -590,6 +623,7 @@ struct Window : public RenderTarget {
 		xcb_clear_area(conn, 1, win, 0, 0, size>>16, size&0xffff);
 	}
 };
+std::set<Window*> Window::windows;
 
 int build_gc_style(display::Style style, int* cur) {
 	int mask = 0;
@@ -602,7 +636,7 @@ int build_gc_style(display::Style style, int* cur) {
 		*(cur++) = style.bg;
 		mask |= XCB_GC_BACKGROUND;
 	}
-	if(style.line_width) {
+	if(style.line_width != -1) {
 		*(cur++) = style.line_width;
 		mask |= XCB_GC_LINE_WIDTH;
 	}
@@ -615,8 +649,51 @@ int build_gc_style(display::Style style, int* cur) {
 }
 
 struct GraphicsContext {
+	static std::set<GraphicsContext*> gcs;
+	
 	xcb_gcontext_t gc;
 	xcb_drawable_t target;
+	
+	struct StyleCache {
+		//foreground
+		//background
+		
+		Dirty<color_id_t> fg, bg;
+		Dirty<uint> lw;
+		
+		//line width
+		//line style
+		//cap style
+		//join style
+		//fill style
+		//fill rule
+		//tile
+		//stipple
+		//stipple origin x
+		//stipple origin y
+		
+		Dirty<font_id_t> font;
+		
+		//subwindow mode
+		//graphics exposure
+		//clip origin x
+		//clip origin y
+		//clip mask
+		//dash offset
+		//dash list
+		//arc mode
+		
+		void flush(GraphicsContext* self) {
+			int values[24], *cur = &values[0], mask = 0;
+			
+			fg.clean(mask, cur, XCB_GC_FOREGROUND);
+			bg.clean(mask, cur, XCB_GC_BACKGROUND);
+			lw.clean(mask, cur, XCB_GC_LINE_WIDTH);
+			font.clean(mask, cur, XCB_GC_FONT);
+			
+			xcb_create_gc(conn, self->gc, self->target, mask, values);
+		}
+	} style_cache;
 	
 	static void init() {
 	
@@ -624,6 +701,8 @@ struct GraphicsContext {
 	
 	//GraphicsContext(target, fg, bg, lw, ls, cap, join, fill_style, fill_rule, font, clip, ...)
 	GraphicsContext(Window* w, display::Style style) {
+		gcs.insert(this);
+		
 		gc = xcb_generate_id(conn);
 		target = w->win;
 		
@@ -633,11 +712,21 @@ struct GraphicsContext {
 		);
 	}
 	
-	void setStyle(display::Style style) {
-		std::vector<int> values(GC_STYLE_LEN);
-		xcb_change_gc(
-			conn, gc, build_gc_style(style, values.data()), values.data()
-		);
+	~GraphicsContext() {
+		gcs.erase(this);
+	}
+	
+	void setFG(color_id_t fg) {
+		style_cache.fg.set(fg);
+	}
+	void setBG(color_id_t bg) {
+		style_cache.bg.set(bg);
+	}
+	void setLineWidth(uint lw) {
+		style_cache.lw.set(lw);
+	}
+	void setFont(font_id_t font) {
+		style_cache.font.set(font);
 	}
 	
 	void drawPoints(bool rel, const std::vector<display::Point>& points) {
@@ -717,6 +806,7 @@ struct GraphicsContext {
 		}
 	}
 };
+std::set<GraphicsContext*> GraphicsContext::gcs;
 
 uint openFont(const std::string& name) {
 	uint id = xcb_generate_id(conn);
@@ -731,6 +821,16 @@ uint openFont(const std::string& name) {
 
 void closeFont(xcb_font_t font) {
 	xcb_close_font(conn, font);
+}
+
+void globalFlush() {
+	for(auto* w : Window::windows) {
+		w->configure_cache.flush(w);
+	}
+	for(auto* gc : GraphicsContext::gcs) {
+		gc->style_cache.flush(gc);
+	}
+	xcb_flush(conn);
 }
 
 }}

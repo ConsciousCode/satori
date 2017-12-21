@@ -35,7 +35,7 @@ function strip_outer_empty(x) {
 function cleanup(x) {
 	x = normalize(x);
 	return x.
-		replace(/\t/gm, '    ').
+		//replace(/\t/gm, '    ').
 		// We liberally added semicolons, so remove the excess
 		replace(/;[;\s]*;/gm, ';').
 		// Condense empty lines
@@ -57,6 +57,22 @@ const head = normalize(`
 
 namespace satori {
 `);
+
+const THROWERR = normalize(`
+isolate->ThrowException(
+	Exception::Error(JS(error.what()))
+);
+`);
+const EXCEPTIONS = normalize(`
+	catch(std::runtime_error error) { ${THROWERR} }
+	catch(std::logic_error error) { ${THROWERR} }
+	catch(std::exception error) { ${THROWERR} }
+	catch(...) {
+		isolate->ThrowException(
+			Exception::Error(JS("Unknown error"))
+		);
+	}
+`)
 
 const tail = "}\n";
 
@@ -81,9 +97,7 @@ function method_implement(klass, name, body) {
 			try {
 				${'\n' + indent(body, 4)};
 			}
-			catch(std::runtime_error error) {
-				isolate->ThrowException(JS(error.what()));
-			}
+			${indent(EXCEPTIONS, 3)}
 		}`);
 }
 
@@ -102,9 +116,7 @@ class Fun {
 				try {
 					${this.body};
 				}
-				catch(std::runtime_error error) {
-					isolate->ThrowException(JS(error.what()));
-				}
+				${indent(EXCEPTIONS, 4)}
 			}
 			
 			void _init_${this.name}(Local<Object> exports) {

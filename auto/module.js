@@ -40,6 +40,7 @@ generate({
 		close: "self.close()",
 		setBG: "self.setBG(cpp<uint>(args[0]))",
 		getID: "RETURN(self.getID())",
+		setParent: "self.setParent(cpp<uint>(args[0]))",
 		
 		getVisible: "RETURN(self.getVisible())",
 		setVisible: "self.setVisible(cpp<bool>(args[0]))",
@@ -169,12 +170,7 @@ generate({
 		redraw: "self.redraw()",
 		
 		allocColor: (`
-			RETURN(self.allocColor(
-				cpp<uint>(args[0]),
-				cpp<uint>(args[1]),
-				cpp<uint>(args[2]),
-				cpp<uint>(args[3])
-			));
+			RETURN(self.allocColor(cpp<uint>(args[0])));
 		`),
 		deallocColors: (`
 			std::vector<uint> colors(args.Length());
@@ -212,16 +208,10 @@ generate({
 			):native(ww, style) {}
 		`),
 		
-		setStyle: (`
-			display::Style style(
-				cpp<uint>(args[0]), // fg
-				cpp<uint>(args[1]), // bg
-				cpp<uint>(args[2]), // line_width
-				cpp<uint>(args[3])  // font
-			);
-			
-			self.setStyle(style);
-		`),
+		setFG: "self.setFG(cpp<uint>(args[0]))",
+		setBG: "self.setBG(cpp<uint>(args[0]))",
+		setLineWidth: "self.setLineWidth(cpp<uint>(args[0]))",
+		setFont: "self.setFont(cpp<uint>(args[0]))",
 		
 		drawPoints: (`
 			std::vector<display::Point> points(args.Length() - 1);

@@ -1,16 +1,12 @@
-Widget
-	Container
-		logical = furthest left/right/top/bottom according to order
-		display = defer to parent
-		child-display = calculated from order
-	Span/Text
-		logical = wrap display
-		display = defer to parent
-	Shape
-		logical = 
-	Image
-	Native
-	Canvas
+Frame
+	Widget
+		Container
+			Window
+		Span
+		Label
+		Image
+		Native
+		Canvas
 
 Style object
 	Acts like CSS, changing how the graphics context is used

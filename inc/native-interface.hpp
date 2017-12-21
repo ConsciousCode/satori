@@ -173,7 +173,7 @@ namespace satori {
 		
 		struct Style {
 			color_id_t fg, bg;
-			uint line_width;
+			int line_width;
 			
 			font_id_t font;
 			

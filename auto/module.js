@@ -13,11 +13,11 @@ generate({
 	closeFont: new Fun(
 		"closeFont", "native::closeFont(cpp<uint>(args[0]))"
 	),
-	NativeWindow: new Class("native::Window", {
+	NativeFrame: new Class("native::Frame", {
 		new: (`
 			//IsConstructCall check not included because it's extra
 			
-			auto* nw = new NativeWindow(
+			auto* nw = new NativeFrame(
 				// parent id
 				cpp<uint>(args[0]),
 				// x, y
@@ -31,7 +31,7 @@ generate({
 			RETURN(THIS);
 		`),
 		constructor: (`
-			NativeWindow(
+			NativeFrame(
 				window_id_t parent,
 				int x, int y, uint w, uint h, uint bw, uint bg
 			):native(parent, x, y, w, h, bw, bg) {}
@@ -187,7 +187,7 @@ generate({
 		new: (`
 			//IsConstructCall check not included because it's extra
 			
-			auto* ww = NativeWindow::unwrap(args[0]);
+			auto* ww = NativeFrame::unwrap(args[0]);
 			
 			auto* jsgc = new NativeGraphicsContext(
 				&ww->native, display::Style(
@@ -204,7 +204,7 @@ generate({
 		
 		constructor: (`
 			NativeGraphicsContext(
-				native::Window* ww, display::Style style
+				native::Frame* ww, display::Style style
 			):native(ww, style) {}
 		`),
 		

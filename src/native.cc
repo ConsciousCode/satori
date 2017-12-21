@@ -185,8 +185,8 @@ struct RenderTarget {
 	}
 };
 
-struct Window : public RenderTarget {
-	static std::set<Window*> windows;
+struct Frame : public RenderTarget {
+	static std::set<Frame*> windows;
 	
 	xcb_window_t win;
 	int event_mask;
@@ -196,7 +196,7 @@ struct Window : public RenderTarget {
 		Dirty<int> x, y;
 		Dirty<uint> w, h, bw;
 		
-		void flush(Window* self) {
+		void flush(Frame* self) {
 			int values[7], *cur = &values[0], mask = 0;
 			
 			x.clean(mask, cur, XCB_CONFIG_WINDOW_X);
@@ -212,7 +212,7 @@ struct Window : public RenderTarget {
 	static void init() {
 	}
 	
-	Window(window_id_t parent, int x, int y, uint w, uint h, uint bw, color_id_t bg) {
+	Frame(window_id_t parent, int x, int y, uint w, uint h, uint bw, color_id_t bg) {
 		windows.insert(this);
 		
 		if(!conn) {
@@ -258,7 +258,7 @@ struct Window : public RenderTarget {
 		
 		auto* error = xcb_request_check(conn, cookie);
 		if(error) {
-			throw buildError("Window creation failed", error);
+			throw buildError("Frame creation failed", error);
 		}
 		
 		cmap = xcb_generate_id(conn);
@@ -275,7 +275,7 @@ struct Window : public RenderTarget {
 		xcb_flush(conn);
 	}
 	
-	~Window() {
+	~Frame() {
 		close();
 	}
 	
@@ -319,7 +319,7 @@ struct Window : public RenderTarget {
 		xcb_generic_error_t* error;
 		auto reply = xcb_get_geometry_reply(conn, cookie, &error);
 		if(error) {
-			throw buildError("Window.getPosition()", error);
+			throw buildError("Frame.getPosition()", error);
 		}
 		
 		return (reply->x<<16)|reply->y;
@@ -334,7 +334,7 @@ struct Window : public RenderTarget {
 		xcb_generic_error_t* error;
 		auto reply = xcb_get_geometry_reply(conn, cookie, &error);
 		if(error) {
-			throw buildError("Window.getSize()", error);
+			throw buildError("Frame.getSize()", error);
 		}
 		
 		return (reply->width<<16)|reply->height;
@@ -353,7 +353,7 @@ struct Window : public RenderTarget {
 			&ewmh, cookie, &reply, &error
 		);
 		if(error) {
-			throw buildError("Window.getTitle()", error);
+			throw buildError("Frame.getTitle()", error);
 		}
 		
 		return std::string(reply.strings, reply.strings_len);
@@ -623,7 +623,7 @@ struct Window : public RenderTarget {
 		xcb_clear_area(conn, 1, win, 0, 0, size>>16, size&0xffff);
 	}
 };
-std::set<Window*> Window::windows;
+std::set<Frame*> Frame::windows;
 
 int build_gc_style(display::Style style, int* cur) {
 	int mask = 0;
@@ -700,7 +700,7 @@ struct GraphicsContext {
 	}
 	
 	//GraphicsContext(target, fg, bg, lw, ls, cap, join, fill_style, fill_rule, font, clip, ...)
-	GraphicsContext(Window* w, display::Style style) {
+	GraphicsContext(Frame* w, display::Style style) {
 		gcs.insert(this);
 		
 		gc = xcb_generate_id(conn);
@@ -802,7 +802,7 @@ struct GraphicsContext {
 		
 		auto* error = xcb_request_check(conn, cookie);
 		if(error) {
-			throw buildError("Window.drawText()", error);
+			throw buildError("Frame.drawText()", error);
 		}
 	}
 };
@@ -824,7 +824,7 @@ void closeFont(xcb_font_t font) {
 }
 
 void globalFlush() {
-	for(auto* w : Window::windows) {
+	for(auto* w : Frame::windows) {
 		w->configure_cache.flush(w);
 	}
 	for(auto* gc : GraphicsContext::gcs) {

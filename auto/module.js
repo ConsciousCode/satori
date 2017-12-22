@@ -208,7 +208,7 @@ generate({
 			bool rel = cpp<bool>(args[0]);
 			
 			for(int i = 1; i < args.Length(); ++i) {
-				Local<Object> obj = cjs<Object>(args[i]);
+				Local<Object> obj = cpp<Object>(args[i]);
 				points[i - 1] = display::Point{
 					cpp<int>(obj->GET("x")), cpp<int>(obj->GET("y"))
 				};
@@ -221,7 +221,7 @@ generate({
 			bool rel = cpp<bool>(args[0]);
 			
 			for(int i = 1; i < args.Length(); ++i) {
-				Local<Object> obj = cjs<Object>(args[i]);
+				Local<Object> obj = cpp<Object>(args[i]);
 				lines[i - 1] = display::Line{
 					cpp<int>(obj->GET("x1")), cpp<int>(obj->GET("y1")),
 					cpp<int>(obj->GET("x2")), cpp<int>(obj->GET("y2"))
@@ -235,7 +235,7 @@ generate({
 			bool fill = cpp<bool>(args[0]);
 			
 			for(int i = 1; i < args.Length(); ++i) {
-				Local<Object> obj = cjs<Object>(args[i]);
+				Local<Object> obj = cpp<Object>(args[i]);
 				rects[i - 1] = display::Rect{
 					cpp<int>(obj->GET("x")), cpp<int>(obj->GET("y")),
 					cpp<uint>(obj->GET("w")), cpp<uint>(obj->GET("h"))

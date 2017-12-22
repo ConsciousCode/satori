@@ -47,10 +47,23 @@ string js_typeof(Var v) {
 #endif
 
 template<typename T>
-T cpp(Var v);
+struct _cpp_return {
+	typedef T type;
+};
 
 template<>
-inline bool cpp(Var v) {
+struct _cpp_return<Object> {
+	typedef Handle<Object> type;
+};
+
+template<typename T>
+using cpp_return = typename _cpp_return<T>::type;
+
+template<typename T>
+cpp_return<T> cpp(Var v);
+
+template<>
+inline bool cpp<bool>(Var v) {
 	#ifdef DEBUG
 		if(!v->IsBoolean()) {
 			throw std::logic_error("cpp<bool> got " + js_typeof(v));
@@ -60,7 +73,7 @@ inline bool cpp(Var v) {
 }
 
 template<>
-inline int cpp(Var v) {
+inline int cpp<int>(Var v) {
 	#ifdef DEBUG
 		if(!v->IsNumber()) {
 			throw std::logic_error("cpp<int> got " + js_typeof(v));
@@ -70,7 +83,7 @@ inline int cpp(Var v) {
 }
 
 template<>
-inline uint cpp(Var v) {
+inline uint cpp<uint>(Var v) {
 	#ifdef DEBUG
 		if(!v->IsNumber()) {
 			throw std::logic_error("cpp<uint> got " + js_typeof(v));
@@ -80,13 +93,24 @@ inline uint cpp(Var v) {
 }
 
 template<>
-inline string cpp(Var v) {
+inline string cpp<string>(Var v) {
 	#ifdef DEBUG
 		if(!v->IsString()) {
 			throw std::logic_error("cpp<string> got " + js_typeof(v));
 		}
 	#endif
 	return *String::Utf8Value(v->ToString());
+}
+
+template<>
+inline Local<Object> cpp<Object>(Var v) {
+	#ifdef DEBUG
+		if(!v->IsObject()) {
+			throw std::logic_error("cpp<Object> got " + js_typeof(v));
+		}
+	#endif
+	
+	return v->ToObject();
 }
 
 #define JS(v) js(isolate, v)
@@ -118,19 +142,5 @@ inline Local<T> js(Isolate* isolate, Local<T> v) {
 
 #define GET(x) Get(JS(x))
 #define SET(k, v) Set(JS(k), JS(v))
-
-template<typename T>
-inline Local<T> cjs(Local<Value> v);
-
-template<>
-inline Local<Object> cjs(Local<Value> v) {
-	#ifdef DEBUG
-		if(!v->IsObject()) {
-			throw std::logic_error("cpp<Object> got " + js_typeof(v));
-		}
-	#endif
-	
-	return v->ToObject();
-}
 
 

@@ -7,7 +7,7 @@
 namespace satori {
 	typedef uint font_id_t;
 	typedef uint color_id_t;
-	typedef uint window_id_t;
+	typedef uint frame_id_t;
 	
 	// Event handling
 	namespace event {
@@ -20,31 +20,27 @@ namespace satori {
 			WINDOW_DRAW = 9, WINDOW_OPEN = 10, WINDOW_CLOSE = 11
 		};
 		
-		struct Input {
-			window_id_t root, child;
-		};
-		
 		namespace mouse {
 			enum Button {
 				UNKNOWN = 0,
 				LEFT = 1, MIDDLE = 2, RIGHT = 3
 			};
 			
-			struct Move : public Input {
+			struct Move {
 				int x, y;
 				bool dragging;
 			};
 			
-			struct Wheel : public Input {
+			struct Wheel {
 				int delta;
 			};
 			
-			struct Press : public Input {
+			struct Press {
 				Button button;
 				bool state, dragging;
 			};
 			
-			struct Hover : public Input {
+			struct Hover {
 				int x, y;
 				bool state;
 			};
@@ -87,7 +83,7 @@ namespace satori {
 				N6 = '6', N7 = '7', N8 = '8', N9 = '9', N0 = '0'
 			};
 			
-			struct Press : public Input {
+			struct Press {
 				Button button, key;
 				bool state;
 				bool shift, ctrl, alt, meta;
@@ -123,6 +119,7 @@ namespace satori {
 		// Combine all the events into one
 		struct Any {
 			Code code;
+			frame_id_t target;
 			
 			union {
 				union {

@@ -1,15 +1,12 @@
 'use strict';
 
-const TAB = /^(\t*)(.+?)$/gm;
+const TAB = /^(\t*)(\s*\S+.+?)$/gm;
 function normalize_indent(x) {
 	let mintab = Infinity, m;
 	
 	TAB.lastIndex = 0;
 	while(m = TAB.exec(x)) {
-		// Only consider lines with content
-		if(!/^\s+$/g.test(m[2])) {
-			mintab = Math.min(mintab, m[1].length);
-		}
+		mintab = Math.min(mintab, m[1].length);
 	}
 	
 	if(Number.isFinite(mintab)) {
@@ -50,6 +47,7 @@ const head = normalize(`
 #include <node.h>
 #include <node_object_wrap.h>
 #include <cstring>
+#include <map>
 
 #include "native.cc"
 
@@ -58,15 +56,19 @@ const head = normalize(`
 namespace satori {
 `);
 
-const THROWERR = normalize(`
-isolate->ThrowException(
-	Exception::Error(JS(error.what()))
-);
-`);
+const THROWERR = indent(normalize(`
+isolate->ThrowException(Exception::Error(JS(error.what())));
+`), 2);
 const EXCEPTIONS = normalize(`
-	catch(std::runtime_error error) { ${THROWERR} }
-	catch(std::logic_error error) { ${THROWERR} }
-	catch(std::exception error) { ${THROWERR} }
+	catch(std::runtime_error error) {
+		${THROWERR}
+	}
+	catch(std::logic_error error) {
+		${THROWERR}
+	}
+	catch(std::exception error) {
+		${THROWERR}
+	}
 	catch(...) {
 		isolate->ThrowException(
 			Exception::Error(JS("Unknown error"))
@@ -102,38 +104,38 @@ function method_implement(klass, name, body) {
 }
 
 class Fun {
-	constructor(name, body) {
-		this.name = name;
+	constructor(body) {
 		this.body = normalize(body);
 	}
 	
-	generate() {
+	generate(name) {
 		return [normalize(`
-			${makefun("_wrap_" + this.name)};
+			${makefun("_wrap_" + name)};
 		`), normalize(`
-			${makefun("_wrap_" + this.name)} {
+			${makefun("_wrap_" + name)} {
 				[[maybe_unused]] auto* isolate = args.GetIsolate();
 				try {
-					${this.body};
+					${indent(this.body, 5)};
 				}
 				${indent(EXCEPTIONS, 4)}
 			}
 			
-			void _init_${this.name}(Local<Object> exports) {
+			void _init_${name}(Local<Object> exports) {
 				auto* isolate = exports->GetIsolate();
-				auto wrap = FunctionTemplate::New(isolate, _wrap_${this.name});
+				auto wrap = FunctionTemplate::New(isolate, _wrap_${name});
 				
 				exports->SET("${this.name}", wrap->GetFunction());
 			}
 		`), normalize(`
-			_init_${this.name}(exports);
+			_init_${name}(exports);
 		`)];
 	}
 }
 
 class Class {
-	constructor(native, methods) {
+	constructor(native, methods, stat) {
 		this.native = native;
+		this.static = stat;
 		
 		for(let m in methods) {
 			methods[m] = normalize(methods[m]);
@@ -150,31 +152,57 @@ class Class {
 			this.cc = "";
 		}
 		
+		if(typeof methods.destructor === 'string') {
+			this.cd = methods.destructor;
+			delete methods.destructor;
+		}
+		else {
+			this.cd = "";
+		}
+		
 		this.methods = methods;
 	}
 	
-	generate(native, wrap) {
+	genstatic() {
+		let out = [];
+		for(let name in this.static) {
+			out.push(`static ${this.static[name]} ${name};`);
+		}
+		return out.join('\n');
+	}
+	
+	endstatic(wrap) {
+		let out = [];
+		for(let name in this.static) {
+			out.push(`${this.static[name]} ${wrap}::${name};`);
+		}
+		return out.join('\n');
+	}
+	
+	generate(name) {
 		return [
 		// Declarations
 		normalize(`
-			struct ${wrap} : public ObjectWrap {
+			struct ${name} : public ObjectWrap {
 				static Persistent<Function> constructor;
 				
-				${native} native;
+				${indent(this.genstatic(), 4)}
 				
-				static ${wrap}* unwrap(Var v) {
-					return ObjectWrap::Unwrap<${wrap}>(v->ToObject());
+				${this.native} native;
+				
+				static ${name}* unwrap(Var v) {
+					return ObjectWrap::Unwrap<${name}>(v->ToObject());
 				}
 				
 				static void init(Local<Object> exports) {
 					Isolate* isolate = exports->GetIsolate();
 					
-					${native}::init();
+					${this.native}::init();
 					
 					// Constructor
 					
 					auto tpl = FunctionTemplate::New(isolate, jsnew);
-					tpl->SetClassName(JS("${wrap}"));
+					tpl->SetClassName(JS("${name}"));
 					tpl->InstanceTemplate()->SetInternalFieldCount(1);
 					
 					// Prototype
@@ -190,27 +218,31 @@ class Class {
 					// Export it
 					
 					constructor.Reset(isolate, tpl->GetFunction());
-					//exports->SET("${wrap}", tpl->GetFunction());
-					exports->Set(String::NewFromUtf8(isolate, "${wrap}"), tpl->GetFunction());
+					exports->SET("${name}", tpl->GetFunction());
 				}
-				${'\n' + indent(method_declare(wrap, 'jsnew', this.cons), 4)}
+				${'\n' + indent(method_declare(name, 'jsnew', this.cons), 4)}
 				
 				${(() => {
 					let out = [];
 					for(let k in this.methods) {
 						out.push(
-							method_declare(wrap, k, this.methods[k])
+							method_declare(name, k, this.methods[k])
 						);
 					}
 					return out.join('\n' + '\t'.repeat(4));
 				})()}
 				${indent(this.cc, 4)}
+				
+				~${name}() {
+					${indent(this.cd, 5)}
+				}
 			};
-			Persistent<Function> ${wrap}::constructor;
+			Persistent<Function> ${name}::constructor;
+			${indent(this.endstatic(name), 4)}
 		`),
 		// Implementations
 		normalize(`
-			${makefun(wrap + "::jsnew")} {
+			${makefun(name + "::jsnew")} {
 				[[maybe_unused]] auto* isolate = args.GetIsolate();
 				${'\n' + indent(this.cons, 4)};
 			}
@@ -219,7 +251,7 @@ class Class {
 				let out = [];
 				for(let k in this.methods) {
 					out.push(
-						method_implement(wrap, k, this.methods[k])
+						method_implement(name, k, this.methods[k])
 					);
 				}
 				return '\n' + out.join('\n\n');
@@ -227,7 +259,7 @@ class Class {
 		`),
 		// Module init
 		normalize(`
-			${wrap}::init(exports);
+			${name}::init(exports);
 		`)];
 	}
 }
@@ -235,8 +267,7 @@ class Class {
 function generate_str(kv) {
 	let decl = [], impl = [], init = [];
 	for(let kn in kv) {
-		let k = kv[kn];
-		let [dec, imp, ini] = k.generate(k.native, kn);
+		let [dec, imp, ini] = kv[kn].generate(kn);
 		decl.push(dec);
 		impl.push(imp);
 		init.push(ini);

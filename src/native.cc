@@ -115,16 +115,17 @@ void init_xcb() {
 	init_keysym();
 }
 
-event::mouse::Button xcb2satori_mousebutton(xcb_button_index_t code) {
+event::mouse::Button xcb2satori_mousebutton(xcb_button_t code) {
 	switch(code) {
-		case XCB_BUTTON_INDEX_1: return event::mouse::LEFT;
-		case XCB_BUTTON_INDEX_3: return event::mouse::RIGHT;
-		case XCB_BUTTON_INDEX_2: return event::mouse::MIDDLE;
+		//case XCB_BUTTON_INDEX*: ?
 		
-		// 4 and 5 shouldn't be given to this function.
-		case XCB_BUTTON_INDEX_4:
-		case XCB_BUTTON_INDEX_5:
-		case XCB_BUTTON_INDEX_ANY:
+		case 0: return event::mouse::LEFT;
+		case 1: return event::mouse::MIDDLE;
+		case 2: return event::mouse::RIGHT;
+		
+		// 3 and 4 shouldn't be given to this function.
+		case 3:
+		case 4:
 			return event::mouse::UNKNOWN;
 	}
 	
@@ -135,8 +136,14 @@ event::mouse::Button xcb2satori_mousebutton(xcb_button_index_t code) {
  * 1010 -> 11001100 (but with 8 bits -> 16 bits)
  * Adapted from Interleave bits by Binary Magic Numbers from
  *  https://graphics.stanford.edu/~seander/bithacks.html
+ *
+ * This is necessary because 
 **/
 int double_bits(int x) {
+	// Colors have been behaving weirdly, maybe it's because this
+	//  algorithm was wrong?
+	return x*257;
+	
 	x = (x | (x << 4)) & 0x0F0F;
 	x = (x | (x << 2)) & 0x3333;
 	x = (x | (x << 1)) & 0x5555;
@@ -205,14 +212,49 @@ struct Frame : public RenderTarget {
 			h.clean(mask, cur, XCB_CONFIG_WINDOW_HEIGHT);
 			bw.clean(mask, cur, XCB_CONFIG_WINDOW_BORDER_WIDTH);
 			
-			xcb_configure_window(conn, self->frame, mask, values);
+			if(mask) {
+				xcb_configure_window(conn, self->frame, mask, values);
+			}
 		}
 	} configure_cache;
+	
+	struct AttributeCache {
+		//back pixmap
+		Dirty<color_id_t> back_color;
+		//border pixmap
+		Dirty<color_id_t> border_color;
+		//"bit gravity"
+		//window gravity
+		//backing planes
+		//backing color/pixel
+		//override redirect
+		//save under
+		//event mask
+		//dont propagate
+		
+		//Colormap isn't included because it's changed too rarely
+		// to be of any benefit
+		//Dirty<xcb_colormap_t> colormap;
+		//cursor
+		
+		void flush(Frame* self) {
+			int values[14], *cur = &values[0], mask = 0;
+			
+			back_color.clean(mask, cur, XCB_CW_BACK_PIXEL);
+			border_color.clean(mask, cur, XCB_CW_BORDER_PIXEL);
+			
+			if(mask) {
+				xcb_change_window_attributes(
+					conn, self->frame, mask, values
+				);
+			}
+		}
+	} attribute_cache;
 	
 	static void init() {
 	}
 	
-	Frame(window_id_t parent, int x, int y, uint w, uint h, uint bw, color_id_t bg) {
+	Frame(frame_id_t parent, int x, int y, uint w, uint h, uint bw, color_id_t bg) {
 		if(!conn) {
 			init_xcb();
 		}
@@ -243,6 +285,7 @@ struct Frame : public RenderTarget {
 		if(h < 1) h = 1;
 		
 		frame = xcb_generate_id(conn);
+		
 		auto cookie = xcb_create_window(
 			conn, XCB_COPY_FROM_PARENT, frame, parent,
 			// x, y, w, h (ignore for now)
@@ -275,29 +318,32 @@ struct Frame : public RenderTarget {
 	
 	~Frame() {
 		close();
+		toflush.erase(this);
 	}
 	
-	void setParent(window_id_t parent) {
+	void flush() {
+		configure_cache.flush(this);
+		attribute_cache.flush(this);
+	}
+	
+	void setParent(frame_id_t parent) {
 		xcb_reparent_window(conn, frame, parent, 0, 0);
 	}
 	
-	window_id_t getID() {
+	frame_id_t getID() {
 		return frame;
 	}
 	
 	void close() {
 		if(frame) {
-			toflush.erase(this);
 			xcb_destroy_window(conn, frame);
 			frame = 0;
 		}
 	}
 	
 	void setBG(color_id_t bg) {
-		int values[] = {(int)bg};
-		xcb_change_window_attributes(
-			conn, frame, XCB_CW_BACK_PIXEL, values
-		);
+		attribute_cache.back_color.set(bg);
+		toflush.insert(this);
 	}
 	
 	bool getVisible() {
@@ -360,206 +406,6 @@ struct Frame : public RenderTarget {
 	}
 	void setTitle(const std::string& s) {
 		xcb_ewmh_set_wm_name(&ewmh, frame, s.size(), s.c_str());
-	}
-	
-	bool pollEvent(event::Any* ev) {
-		xcb_generic_event_t* xcb_ev = xcb_poll_for_event(conn);
-		
-		if(!xcb_ev) {
-			return false;
-		}
-		
-		switch(xcb_ev->response_type & ~0x80) {
-			case XCB_EXPOSE:
-				ev->code = event::WINDOW_DRAW;
-				break;
-			
-			/*** BEGIN: Mouse press event handling ***/
-			{
-				// Note: while xcb_button_press/release_event_t may
-				//  seem structurally compatible, C/++ makes no such
-				//  guarantee. Thus for type safety, extract detail
-				int rawdetail, root, child;
-				
-				case XCB_BUTTON_PRESS: {
-					auto* xev = (xcb_button_press_event_t*)xcb_ev;
-					ev->mouse.press.state = true;
-					
-					rawdetail = xev->detail;
-					root = xev->event;
-					child = xev->child;
-					
-					goto LABEL_mouse_event;
-				}
-				case XCB_BUTTON_RELEASE: {
-					auto* xev = (xcb_button_release_event_t*)xcb_ev;
-					ev->mouse.press.state = false;
-					
-					rawdetail = xev->detail;
-					root = xev->event;
-					child = xev->child;
-					
-					goto LABEL_mouse_event;
-				}
-				LABEL_mouse_event: {
-					xcb_button_index_t detail =
-						(xcb_button_index_t)rawdetail;
-					
-					// 4 and 5 are the mouse wheel "buttons"
-					if(detail == XCB_BUTTON_INDEX_4 || detail == XCB_BUTTON_INDEX_5) {
-						ev->code = event::MOUSE_WHEEL;
-						ev->mouse.wheel.root = root;
-						ev->mouse.wheel.child = child;
-						
-						ev->mouse.wheel.delta = detail;
-					}
-					else {
-						ev->code = event::MOUSE_PRESS;
-						ev->mouse.press.root = root;
-						ev->mouse.press.child = child;
-						
-						ev->mouse.press.button =
-							xcb2satori_mousebutton(
-								(xcb_button_index_t)detail
-							);
-						ev->mouse.press.dragging = false;
-					}
-					break;
-				}
-			}
-			/*** END Mouse press event handling ***/
-			
-			case XCB_MOTION_NOTIFY: {
-				auto* xev = (xcb_motion_notify_event_t*)xcb_ev;
-				
-				ev->code = event::MOUSE_MOVE;
-				
-				ev->mouse.move.root = xev->event;
-				ev->mouse.move.child = xev->child;
-				
-				ev->mouse.move.x = xev->event_x;
-				ev->mouse.move.y = xev->event_y;
-				
-				break;
-			}
-			
-			/*** BEGIN: Mouse hover event handling ***/
-			{
-				int x, y, root, child;
-				
-				case XCB_ENTER_NOTIFY: {
-					auto* xev = (xcb_enter_notify_event_t*)xcb_ev;
-					ev->mouse.hover.state = true;
-					
-					root = xev->event;
-					child = xev->child;
-					x = xev->event_x;
-					y = xev->event_y;
-					
-					goto LABEL_hover_event;
-				}
-				case XCB_LEAVE_NOTIFY: {
-					auto* xev = (xcb_leave_notify_event_t*)xcb_ev;
-					ev->mouse.hover.state = false;
-					
-					root = xev->event;
-					child = xev->child;
-					x = xev->event_x;
-					y = xev->event_y;
-					
-					goto LABEL_hover_event;
-				}
-				LABEL_hover_event: {
-					ev->code = event::MOUSE_HOVER;
-					
-					ev->mouse.hover.root = root;
-					ev->mouse.hover.child = child;
-					
-					ev->mouse.hover.x = x;
-					ev->mouse.hover.y = y;
-					
-					break;
-				}
-			}
-			/*** END: Mouse hover event handling ***/
-			
-			/*** BEGIN: Key press event handling ***/
-			{
-				int detail, state, root, child;
-				
-				case XCB_KEY_PRESS: {
-					auto* xev = (xcb_key_press_event_t*)xcb_ev;
-					ev->key.press.state = true;
-					
-					root = xev->event;
-					child = xev->child;
-					detail = xev->detail;
-					state = xev->state;
-					
-					goto LABEL_key_event;
-				}
-				case XCB_KEY_RELEASE: {
-					auto* xev = (xcb_key_release_event_t*)xcb_ev;
-					ev->key.press.state = false;
-					
-					root = xev->event;
-					child = xev->child;
-					detail = xev->detail;
-					state = xev->state;
-					
-					goto LABEL_key_event;
-				}
-				LABEL_key_event: {
-					xcb_keycode_t code = (xcb_keycode_t)detail;
-					xcb_mod_mask_t mods = (xcb_mod_mask_t)state;
-					
-					ev->code = event::KEY_PRESS;
-					ev->key.press.root = root;
-					ev->key.press.child = child;
-					
-					ev->key.press.key = event::key::UNKNOWN;
-					xcb2satori_keycode(
-						code, mods,
-						&ev->key.press.button,
-						&ev->key.press.key
-					);
-					
-					ev->key.press.shift = mods&XCB_MOD_MASK_SHIFT;
-					ev->key.press.ctrl = mods&XCB_MOD_MASK_CONTROL;
-					// lock?
-					ev->key.press.alt = mods&XCB_MOD_MASK_1;
-					
-					break;
-				}
-			}
-			/*** END: Key press event handling ***/
-				
-			case XCB_CREATE_NOTIFY: {
-				//auto* xev = (xcb_create_notify_event_t*)xcb_ev;
-				
-				ev->code = event::WINDOW_OPEN;
-				
-				break;
-			}
-			case XCB_DESTROY_NOTIFY: {
-				//auto* xev = (xcb_destroy_notify_event_t*)xcb_ev;
-				
-				ev->code = event::WINDOW_CLOSE;
-				
-				break;
-			}
-			
-			default: goto LABEL_no_impl;
-		}
-		
-		LABEL_done:
-			free(xcb_ev);
-			return true;
-		
-		// Handle any events that we've listed but not implemented
-		LABEL_no_impl:
-			ev->code = event::UNKNOWN;
-			goto LABEL_done;
 	}
 	
 	void listenEvent(event::Code code) {
@@ -714,6 +560,10 @@ struct GraphicsContext {
 		toflush.erase(this);
 	}
 	
+	void flush() {
+		style_cache.flush(this);
+	}
+	
 	void setFG(color_id_t fg) {
 		style_cache.fg.set(fg);
 		toflush.insert(this);
@@ -824,13 +674,224 @@ uint openFont(const std::string& name) {
 void closeFont(xcb_font_t font) {
 	xcb_close_font(conn, font);
 }
+	
+bool pollEvent(event::Any* ev) {
+	xcb_generic_event_t* xcb_ev = xcb_poll_for_event(conn);
+	
+	if(!xcb_ev) {
+		return false;
+	}
+	
+	switch(xcb_ev->response_type & ~0x80) {
+		case XCB_EXPOSE:
+			ev->code = event::WINDOW_DRAW;
+			break;
+		
+		/*** BEGIN: Mouse press event handling ***/
+		{
+			// Note: while xcb_button_press/release_event_t may
+			//  seem structurally compatible, C/++ makes no such
+			//  guarantee. Thus for type safety, extract detail
+			xcb_button_t button;
+			frame_id_t target;
+			
+			case XCB_BUTTON_PRESS: {
+				auto* xev = (xcb_button_press_event_t*)xcb_ev;
+				ev->mouse.press.state = true;
+				
+				button = xev->detail;
+				target = xev->child || xev->event || xev->root;
+				
+				goto LABEL_mouse_event;
+			}
+			case XCB_BUTTON_RELEASE: {
+				auto* xev = (xcb_button_release_event_t*)xcb_ev;
+				ev->mouse.press.state = false;
+				
+				button = xev->detail;
+				target = xev->child || xev->event || xev->root;
+				
+				goto LABEL_mouse_event;
+			}
+			LABEL_mouse_event: {
+				ev->target = target;
+				
+				// 3 and 4 are the mouse wheel "buttons"
+				if(button == 3 || button == 4) {
+					ev->code = event::MOUSE_WHEEL;
+					ev->mouse.wheel.delta = button;
+				}
+				else {
+					ev->code = event::MOUSE_PRESS;
+					ev->mouse.press.button =
+						xcb2satori_mousebutton(button);
+					ev->mouse.press.dragging = false;
+				}
+				break;
+			}
+		}
+		/*** END Mouse press event handling ***/
+		
+		case XCB_MOTION_NOTIFY: {
+			auto* xev = (xcb_motion_notify_event_t*)xcb_ev;
+			
+			ev->code = event::MOUSE_MOVE;
+			ev->target = xev->child || xev->event || xev->root;
+			
+			ev->mouse.move.x = xev->event_x;
+			ev->mouse.move.y = xev->event_y;
+			
+			break;
+		}
+		
+		/*** BEGIN: Mouse hover event handling ***/
+		{
+			int x, y, target;
+			
+			case XCB_ENTER_NOTIFY: {
+				auto* xev = (xcb_enter_notify_event_t*)xcb_ev;
+				ev->mouse.hover.state = true;
+				
+				target = xev->child || xev->event || xev->root;
+				x = xev->event_x;
+				y = xev->event_y;
+				
+				goto LABEL_hover_event;
+			}
+			case XCB_LEAVE_NOTIFY: {
+				auto* xev = (xcb_leave_notify_event_t*)xcb_ev;
+				ev->mouse.hover.state = false;
+				
+				target = xev->child || xev->event || xev->root;
+				x = xev->event_x;
+				y = xev->event_y;
+				
+				goto LABEL_hover_event;
+			}
+			LABEL_hover_event: {
+				ev->code = event::MOUSE_HOVER;
+				ev->target = target;
+				
+				ev->mouse.hover.x = x;
+				ev->mouse.hover.y = y;
+				
+				break;
+			}
+		}
+		/*** END: Mouse hover event handling ***/
+		
+		/*** BEGIN: Key press event handling ***/
+		{
+			xcb_keycode_t key;
+			xcb_mod_mask_t mods;
+			frame_id_t target;
+			
+			case XCB_KEY_PRESS: {
+				auto* xev = (xcb_key_press_event_t*)xcb_ev;
+				ev->key.press.state = true;
+				
+				target = xev->child || xev->event || xev->root;
+				key = xev->detail;
+				mods = (xcb_mod_mask_t)xev->state;
+				
+				goto LABEL_key_event;
+			}
+			case XCB_KEY_RELEASE: {
+				auto* xev = (xcb_key_release_event_t*)xcb_ev;
+				ev->key.press.state = false;
+				
+				target = xev->child || xev->event || xev->root;
+				key = xev->detail;
+				mods = (xcb_mod_mask_t)xev->state;
+				
+				goto LABEL_key_event;
+			}
+			LABEL_key_event: {
+				xcb_keycode_t code = key;
+				
+				ev->code = event::KEY_PRESS;
+				ev->target = target;
+				
+				ev->key.press.key = event::key::UNKNOWN;
+				xcb2satori_keycode(
+					code, mods,
+					&ev->key.press.button,
+					&ev->key.press.key
+				);
+				
+				ev->key.press.shift = mods&XCB_MOD_MASK_SHIFT;
+				ev->key.press.ctrl = mods&XCB_MOD_MASK_CONTROL;
+				// lock?
+				ev->key.press.alt = mods&XCB_MOD_MASK_1;
+				
+				break;
+			}
+		}
+		/*** END: Key press event handling ***/
+			
+		case XCB_CREATE_NOTIFY: {
+			auto* xev = (xcb_create_notify_event_t*)xcb_ev;
+			
+			ev->code = event::WINDOW_OPEN;
+			ev->target = xev->window;
+			
+			break;
+		}
+		case XCB_DESTROY_NOTIFY: {
+			auto* xev = (xcb_destroy_notify_event_t*)xcb_ev;
+			
+			ev->code = event::WINDOW_CLOSE;
+			ev->target = xev->window;
+			
+			break;
+		}
+		
+		case XCB_FOCUS_IN:
+		case XCB_FOCUS_OUT:
+		case XCB_KEYMAP_NOTIFY:
+		case XCB_GRAPHICS_EXPOSURE:
+		case XCB_NO_EXPOSURE:
+		case XCB_VISIBILITY_NOTIFY:
+		case XCB_UNMAP_NOTIFY:
+		case XCB_MAP_NOTIFY:
+		case XCB_MAP_REQUEST:
+		case XCB_REPARENT_NOTIFY:
+		case XCB_CONFIGURE_NOTIFY:
+		case XCB_CONFIGURE_REQUEST:
+		case XCB_GRAVITY_NOTIFY:
+		case XCB_RESIZE_REQUEST:
+		case XCB_CIRCULATE_NOTIFY:
+		case XCB_CIRCULATE_REQUEST:
+		case XCB_PROPERTY_NOTIFY:
+		case XCB_SELECTION_CLEAR:
+		case XCB_SELECTION_REQUEST:
+		case XCB_SELECTION_NOTIFY:
+		case XCB_CLIENT_MESSAGE:
+		case XCB_MAPPING_NOTIFY:
+		case XCB_GE_GENERIC:
+		default: goto LABEL_no_impl;
+	}
+	
+	LABEL_done:
+		free(xcb_ev);
+		return true;
+	
+	// Handle any events that we've listed but not implemented
+	LABEL_no_impl:
+		ev->code = event::UNKNOWN;
+		goto LABEL_done;
+}
+
+void dispatchEvent() {
+	
+}
 
 void globalFlush() {
 	for(auto* f : Frame::toflush) {
-		f->configure_cache.flush(f);
+		f->flush();
 	}
 	for(auto* gc : GraphicsContext::toflush) {
-		gc->style_cache.flush(gc);
+		gc->flush();
 	}
 	xcb_flush(conn);
 }

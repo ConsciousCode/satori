@@ -4,15 +4,120 @@ const
 	{Fun, Class, generate} = require("./generate");
 
 generate({
-	globalFlush: new Fun(
-		"globalFlush", "native::globalFlush()"
-	),
+	globalFlush: new Fun("native::globalFlush()"),
 	openFont: new Fun(
-		"openFont", "RETURN(native::openFont(cpp<string>(args[0])))"
+		"RETURN(native::openFont(cpp<string>(args[0])))"
 	),
 	closeFont: new Fun(
-		"closeFont", "native::closeFont(cpp<uint>(args[0]))"
+		"native::closeFont(cpp<uint>(args[0]))"
 	),
+		
+	pollEvent: new Fun(`
+		event::Any aev;
+		memset(&aev, 0, sizeof(aev));
+		
+		if(native::pollEvent(&aev)) {
+			Local<Object> obj = OBJECT();
+			
+			obj->SET("code", (int)aev.code);
+			obj->SET("target", NativeFrame::idmap[aev.target]);
+			
+			switch(aev.code) {
+				case event::MOUSE_MOVE: {
+					event::mouse::Move& ev = aev.mouse.move;
+					
+					obj->SET("x", ev.x);
+					obj->SET("y", ev.y);
+					obj->SET("dragging", ev.dragging);
+					break;
+				}
+				case event::MOUSE_WHEEL: {
+					event::mouse::Wheel& ev = aev.mouse.wheel;
+					
+					obj->SET("delta", ev.delta);
+					break;
+				}
+				case event::MOUSE_PRESS: {
+					event::mouse::Press& ev = aev.mouse.press;
+					
+					obj->SET("button", (int)ev.button);
+					obj->SET("state", ev.state);
+					obj->SET("dragging", ev.dragging);
+					break;
+				}
+				case event::MOUSE_HOVER: {
+					event::mouse::Hover& ev = aev.mouse.hover;
+					
+					obj->SET("x", ev.x);
+					obj->SET("y", ev.y);
+					obj->SET("state", ev.state);
+					break;
+				}
+				
+				case event::KEY_PRESS: {
+					event::key::Press& ev = aev.key.press;
+					
+					obj->SET("button", (int)ev.button);
+					obj->SET("key", (int)ev.key);
+					obj->SET("state", ev.state);
+					obj->SET("shift", ev.shift);
+					obj->SET("ctrl", ev.ctrl);
+					obj->SET("alt", ev.alt);
+					obj->SET("meta", ev.meta);
+					break;
+				}
+				
+				case event::WINDOW_MOVE: {
+					event::window::Move ev = aev.window.move;
+					
+					obj->SET("x", ev.x);
+					obj->SET("y", ev.y);
+					break;
+				}					
+				case event::WINDOW_RESIZE: {
+					event::window::Resize ev = aev.window.resize;
+					
+					obj->SET("w", ev.w);
+					obj->SET("h", ev.h);
+					break;
+				}
+				case event::WINDOW_FOCUS: {
+					event::window::Focus ev = aev.window.focus;
+					
+					obj->SET("state", ev.state);
+					break;
+				}
+				
+				case event::WINDOW_DRAW: 
+					/* Nothing to add */
+					break;
+				
+				case event::WINDOW_OPEN:
+					/* Nothing to add */
+					break;
+				case event::WINDOW_CLOSE:
+					/* Nothing to add */
+					break;
+				
+				case event::UNKNOWN:
+					break;
+			}
+			
+			RETURN(obj);
+		}
+	`),
+	
+	dispatchEvent: new Fun(`
+		Handle<Value> callargs[1] = {args[1]};
+		Handle<Function>::Cast(
+			NativeFrame::idmap[cpp<uint>(args[0])]->handle()->GET("onEvent")
+		)->Call(Null(Isolate::GetCurrent()), 1, callargs);
+	`),
+	
+	frameCount: new Fun(`
+		RETURN(JS((uint)NativeFrame::idmap.size()));
+	`),
+	
 	NativeFrame: new Class("native::Frame", {
 		new: (`
 			//IsConstructCall check not included because it's extra
@@ -28,16 +133,22 @@ generate({
 				cpp<uint>(args[5]), cpp<uint>(args[6])
 			);
 			nw->Wrap(THIS);
+			
+			// We don't really need to set this ahead of time
+			//nw->SET("ondestroy", Null());
+			
 			RETURN(THIS);
 		`),
 		constructor: (`
 			NativeFrame(
-				window_id_t parent,
+				frame_id_t parent,
 				int x, int y, uint w, uint h, uint bw, uint bg
-			):native(parent, x, y, w, h, bw, bg) {}
+			):native(parent, x, y, w, h, bw, bg) {
+				idmap[native.getID()] = this;
+			}
 		`),
 		
-		close: "self.close()",
+		close: "self.close(); idmap.erase(self.getID())",
 		setBG: "self.setBG(cpp<uint>(args[0]))",
 		getID: "RETURN(self.getID())",
 		setParent: "self.setParent(cpp<uint>(args[0]))",
@@ -54,114 +165,6 @@ generate({
 		getTitle: "RETURN(self.getTitle())",
 		setTitle: "self.setTitle(cpp<string>(args[0]))",
 		
-		pollEvent: (`
-			event::Any aev;
-			memset(&aev, 0, sizeof(aev));
-			
-			if(self.pollEvent(&aev)) {
-				Local<Object> obj = OBJECT();
-				
-				obj->SET("code", (int)aev.code);
-				
-				switch(aev.code) {
-					case event::MOUSE_MOVE: {
-						event::mouse::Move& ev = aev.mouse.move;
-						
-						obj->SET("root", ev.root);
-						obj->SET("child", ev.child);
-						
-						obj->SET("x", ev.x);
-						obj->SET("y", ev.y);
-						obj->SET("dragging", ev.dragging);
-						break;
-					}
-					case event::MOUSE_WHEEL: {
-						event::mouse::Wheel& ev = aev.mouse.wheel;
-						
-						obj->SET("root", ev.root);
-						obj->SET("child", ev.child);
-						
-						obj->SET("delta", ev.delta);
-						break;
-					}
-					case event::MOUSE_PRESS: {
-						event::mouse::Press& ev = aev.mouse.press;
-						
-						obj->SET("root", ev.root);
-						obj->SET("child", ev.child);
-						
-						obj->SET("button", (int)ev.button);
-						obj->SET("state", ev.state);
-						obj->SET("dragging", ev.dragging);
-						break;
-					}
-					case event::MOUSE_HOVER: {
-						event::mouse::Hover& ev = aev.mouse.hover;
-						
-						obj->SET("root", ev.root);
-						obj->SET("child", ev.child);
-						
-						obj->SET("x", ev.x);
-						obj->SET("y", ev.y);
-						obj->SET("state", ev.state);
-						break;
-					}
-					
-					case event::KEY_PRESS: {
-						event::key::Press& ev = aev.key.press;
-						
-						obj->SET("root", ev.root);
-						obj->SET("child", ev.child);
-						
-						obj->SET("button", (int)ev.button);
-						obj->SET("key", (int)ev.key);
-						obj->SET("state", ev.state);
-						obj->SET("shift", ev.shift);
-						obj->SET("ctrl", ev.ctrl);
-						obj->SET("alt", ev.alt);
-						obj->SET("meta", ev.meta);
-						break;
-					}
-					
-					case event::WINDOW_MOVE: {
-						event::window::Move ev = aev.window.move;
-						
-						obj->SET("x", ev.x);
-						obj->SET("y", ev.y);
-						break;
-					}					
-					case event::WINDOW_RESIZE: {
-						event::window::Resize ev = aev.window.resize;
-						
-						obj->SET("w", ev.w);
-						obj->SET("h", ev.h);
-						break;
-					}
-					case event::WINDOW_FOCUS: {
-						event::window::Focus ev = aev.window.focus;
-						
-						obj->SET("state", ev.state);
-						break;
-					}
-					
-					case event::WINDOW_DRAW: 
-						/* Nothing to add */
-						break;
-					
-					case event::WINDOW_OPEN:
-						/* Nothing to add */
-						break;
-					case event::WINDOW_CLOSE:
-						/* Nothing to add */
-						break;
-					
-					case event::UNKNOWN:
-						break;
-				}
-				
-				RETURN(obj);
-			}
-		`),
 		listenEvent:
 			"self.listenEvent((event::Code)cpp<int>(args[0]))",
 		
@@ -181,6 +184,8 @@ generate({
 			
 			self.deallocColors(colors);
 		`)
+	}, {
+		idmap: "std::map<frame_id_t, NativeFrame*>"
 	}),
 	
 	NativeGraphicsContext: new Class("native::GraphicsContext", {
@@ -260,5 +265,7 @@ generate({
 			
 			self.drawText(x, y, text);
 		`)
+	}, {
+	
 	})
 });

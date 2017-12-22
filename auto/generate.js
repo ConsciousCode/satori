@@ -124,7 +124,7 @@ class Fun {
 				auto* isolate = exports->GetIsolate();
 				auto wrap = FunctionTemplate::New(isolate, _wrap_${name});
 				
-				exports->SET("${this.name}", wrap->GetFunction());
+				exports->SET("${name}", wrap->GetFunction());
 			}
 		`), normalize(`
 			_init_${name}(exports);

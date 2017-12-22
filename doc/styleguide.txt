@@ -33,3 +33,11 @@ Operators generally have spaces surrounding them. Exceptions:
 Lines should never exceed 80 characters. Continuations of an expression should be indented. Multi-line function calls and blocks have the closing parenthesis on a separate line, with same-indentation being combined into one. Ex:
 callback(() => {
 }, 10)
+
+Properties should generally have 3 accessors:
+* A native getter (eg .prop)
+* A native setter (eg .prop = 0)
+* A setProp() method which returns this
+With the notable exception of readonly properties, which need only the getter.
+
+When an alias is being made, it should always refer to the longest name for that alias.

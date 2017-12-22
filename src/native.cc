@@ -683,9 +683,18 @@ bool pollEvent(event::Any* ev) {
 	}
 	
 	switch(xcb_ev->response_type & ~0x80) {
-		case XCB_EXPOSE:
+		// This appears at the beginning of a connection. The only
+		//  documentation I could find suggested 0 is reserved for
+		//  errors
+		case 0: goto LABEL_ignore;
+		
+		case XCB_EXPOSE: {
+			auto* xev = (xcb_expose_event_t*)xcb_ev;
+			
 			ev->code = event::WINDOW_DRAW;
+			ev->target = xev->window;
 			break;
+		}
 		
 		/*** BEGIN: Mouse press event handling ***/
 		{
@@ -872,14 +881,21 @@ bool pollEvent(event::Any* ev) {
 		default: goto LABEL_no_impl;
 	}
 	
-	LABEL_done:
+	LABEL_done: {
 		free(xcb_ev);
 		return true;
+	}
+	
+	LABEL_ignore: {
+		free(xcb_ev);
+		return false;
+	}
 	
 	// Handle any events that we've listed but not implemented
-	LABEL_no_impl:
+	LABEL_no_impl: {
 		ev->code = event::UNKNOWN;
 		goto LABEL_done;
+	}
 }
 
 void dispatchEvent() {

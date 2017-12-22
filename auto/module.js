@@ -19,8 +19,8 @@ generate({
 		if(native::pollEvent(&aev)) {
 			Local<Object> obj = OBJECT();
 			
-			obj->SET("code", (int)aev.code);
-			obj->SET("target", NativeFrame::idmap[aev.target]);
+			obj->SET("code", (uint)aev.code);
+			obj->SET("target", (uint)aev.target);
 			
 			switch(aev.code) {
 				case event::MOUSE_MOVE: {
@@ -107,17 +107,6 @@ generate({
 		}
 	`),
 	
-	dispatchEvent: new Fun(`
-		Handle<Value> callargs[1] = {args[1]};
-		Handle<Function>::Cast(
-			NativeFrame::idmap[cpp<uint>(args[0])]->handle()->GET("onEvent")
-		)->Call(Null(Isolate::GetCurrent()), 1, callargs);
-	`),
-	
-	frameCount: new Fun(`
-		RETURN(JS((uint)NativeFrame::idmap.size()));
-	`),
-	
 	NativeFrame: new Class("native::Frame", {
 		new: (`
 			//IsConstructCall check not included because it's extra
@@ -143,12 +132,10 @@ generate({
 			NativeFrame(
 				frame_id_t parent,
 				int x, int y, uint w, uint h, uint bw, uint bg
-			):native(parent, x, y, w, h, bw, bg) {
-				idmap[native.getID()] = this;
-			}
+			):native(parent, x, y, w, h, bw, bg) {}
 		`),
 		
-		close: "self.close(); idmap.erase(self.getID())",
+		close: "self.close()",
 		setBG: "self.setBG(cpp<uint>(args[0]))",
 		getID: "RETURN(self.getID())",
 		setParent: "self.setParent(cpp<uint>(args[0]))",
@@ -184,8 +171,6 @@ generate({
 			
 			self.deallocColors(colors);
 		`)
-	}, {
-		idmap: "std::map<frame_id_t, NativeFrame*>"
 	}),
 	
 	NativeGraphicsContext: new Class("native::GraphicsContext", {
